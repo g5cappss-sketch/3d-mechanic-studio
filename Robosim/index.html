@@ -1,0 +1,468 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mô Hình 3D Lắp Ghép Thanh & Trục Cơ Khí</title>
+  
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Three.js and OrbitControls -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+  <!-- THÊM: Three.js TransformControls cho công cụ tiện ích di chuyển/xoay -->
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/TransformControls.js"></script>
+  <!-- Three.js GLTFExporter for .GLB file export -->
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/exporters/GLTFExporter.js"></script>
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  
+  <!-- Import CSS -->
+  <link rel="stylesheet" href="style.css">
+</head>
+<body class="bg-slate-950 text-slate-100 h-screen w-screen flex flex-col md:flex-row relative">
+
+  <!-- 3D Canvas Area -->
+  <div id="canvas-container" class="relative flex-1 h-full w-full bg-gradient-to-b from-slate-900 via-slate-950 to-neutral-950 overflow-hidden">
+    <canvas id="webgl-canvas" class="w-full h-full block cursor-grab active:cursor-grabbing"></canvas>
+
+    <!-- Top Floating Header Info -->
+    <div class="absolute top-4 left-4 z-10 pointer-events-none">
+      <div class="bg-slate-900/85 backdrop-blur-md border border-slate-700/60 rounded-2xl px-4 py-3 shadow-xl max-w-md">
+        <div class="flex items-center space-x-2.5">
+          <div id="status-dot" class="w-3 h-3 rounded-full bg-cyan-400 animate-pulse"></div>
+          <h1 id="model-header-title" class="text-sm md:text-base font-bold text-slate-100 tracking-wide">Studio Lắp Ghép Cơ Khí 3D</h1>
+        </div>
+        <p id="model-header-subtitle" class="text-[11px] md:text-xs text-slate-400 mt-1">Chọn thanh, chọn lỗ cắm chốt độc lập & mô phỏng xoay góc bản lề thực tế</p>
+      </div>
+    </div>
+
+    <!-- Active Snapping Guide Banner -->
+    <div id="snap-guide-banner" class="hidden absolute top-4 left-1/2 -translate-x-1/2 z-20 bg-cyan-950/95 border border-cyan-400/80 backdrop-blur-md text-cyan-200 px-4 py-2.5 rounded-2xl shadow-2xl flex items-center gap-3">
+      <i data-lucide="crosshair" class="w-4 h-4 text-cyan-400 animate-spin"></i>
+      <span id="snap-guide-text" class="text-xs font-medium">Chọn một lỗ trên thanh khác để hoàn tất cắm chốt nối.</span>
+      <button onclick="cancelSnapMode()" class="px-2 py-0.5 text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg transition-colors">Hủy</button>
+    </div>
+
+    <!-- Floating HUD for currently selected Part -->
+    <div id="floating-part-hud" class="hidden absolute top-32 left-4 z-10 bg-slate-900/90 backdrop-blur-md border border-cyan-500/50 rounded-2xl p-3 shadow-2xl flex items-center gap-3 max-w-xs">
+      <div class="w-2.5 h-2.5 rounded-full bg-cyan-400"></div>
+      <div class="flex-1 min-w-0">
+        <p class="text-[10px] text-slate-400 uppercase font-mono tracking-wider">Đang chọn</p>
+        <p id="floating-part-name" class="text-xs font-bold text-cyan-200 truncate">Dầm Kỹ Thuật</p>
+      </div>
+      <button onclick="openJoinWizardForSelected()" class="px-2.5 py-1 text-xs font-semibold rounded-lg bg-cyan-500 hover:bg-cyan-400 text-slate-950 flex items-center gap-1 shadow">
+        <i data-lucide="link" class="w-3 h-3"></i> Ghép Nối
+      </button>
+    </div>
+
+    <!-- Quick Camera & Assembly Action Toolbar -->
+    <div class="absolute bottom-5 left-1/2 -translate-x-1/2 z-10 flex flex-wrap items-center justify-center bg-slate-900/90 backdrop-blur-md border border-slate-700/70 p-1.5 rounded-2xl shadow-2xl gap-1">
+      
+     <!-- CÔNG CỤ TƯƠNG TÁC (INTERACTION TOOLS) -->
+      <button onclick="setInteractionTool('select')" class="px-2.5 py-1.5 rounded-xl text-xs font-semibold bg-slate-700/50 hover:bg-slate-700 text-slate-200 transition-all flex items-center gap-1.5 shadow-sm" title="Chọn Vật Thể">
+        <i data-lucide="mouse-pointer-2" class="w-3.5 h-3.5"></i> Chọn
+      </button>
+      <button onclick="setInteractionTool('translate')" class="px-2.5 py-1.5 rounded-xl text-xs font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/40 hover:bg-amber-500/30 transition-all flex items-center gap-1.5 shadow-sm" title="Kéo di chuyển">
+        <i data-lucide="move" class="w-3.5 h-3.5"></i> Kéo
+      </button>
+      <button onclick="setInteractionTool('rotate')" class="px-2.5 py-1.5 rounded-xl text-xs font-semibold bg-purple-500/20 text-purple-300 border border-purple-500/40 hover:bg-purple-500/30 transition-all flex items-center gap-1.5 shadow-sm" title="Xoay">
+        <i data-lucide="rotate-3d" class="w-3.5 h-3.5"></i> Xoay
+      </button>
+
+      <!-- Các nút Camera -->
+      <button onclick="setCameraView('iso')" class="px-2.5 py-1.5 rounded-xl text-xs font-medium hover:bg-slate-800 text-slate-300 hover:text-cyan-400 transition-colors flex items-center gap-1.5" title="Góc phối cảnh 3D">
+        <i data-lucide="box" class="w-3.5 h-3.5"></i> Iso
+      </button>
+      <button onclick="setCameraView('top')" class="px-2.5 py-1.5 rounded-xl text-xs font-medium hover:bg-slate-800 text-slate-300 hover:text-cyan-400 transition-colors flex items-center gap-1.5" title="Nhìn thẳng từ trên">
+        <i data-lucide="arrow-down" class="w-3.5 h-3.5"></i> Trên
+      </button>
+      <button onclick="setCameraView('front')" class="px-2.5 py-1.5 rounded-xl text-xs font-medium hover:bg-slate-800 text-slate-300 hover:text-cyan-400 transition-colors flex items-center gap-1.5" title="Nhìn từ mặt cạnh">
+        <i data-lucide="layout-template" class="w-3.5 h-3.5"></i> Cạnh
+      </button>
+
+      <div class="h-4 w-px bg-slate-700 mx-1 hidden sm:block"></div>
+
+      <!-- Explode / Assemble Toggle -->
+      <button id="btn-explode" onclick="toggleAssemblyExplode()" class="px-3 py-1.5 rounded-xl text-xs font-semibold bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 hover:bg-cyan-500/30 transition-all flex items-center gap-1.5 shadow-sm">
+        <i data-lucide="unfold-horizontal" class="w-3.5 h-3.5"></i> <span id="label-explode">Tách rời (Explode)</span>
+      </button>
+
+      <!-- GLB Export Button -->
+      <button onclick="exportToGLB(false)" class="px-3 py-1.5 rounded-xl text-xs font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 hover:bg-emerald-500/30 transition-all flex items-center gap-1.5 shadow-sm" title="Xuất toàn bộ cụm lắp ghép ra file .GLB">
+        <i data-lucide="download" class="w-3.5 h-3.5"></i> <span>Xuất .GLB</span>
+      </button>
+
+      <button id="toggle-autorotate" onclick="toggleAutoRotate()" class="p-1.5 rounded-xl text-slate-300 hover:text-cyan-400 hover:bg-slate-800 transition-colors" title="Bật/Tắt tự xoay">
+        <i data-lucide="rotate-cw" class="w-4 h-4"></i>
+      </button>
+      <button onclick="resetCamera()" class="p-1.5 rounded-xl text-slate-300 hover:text-cyan-400 hover:bg-slate-800 transition-colors" title="Đặt lại camera">
+        <i data-lucide="refresh-cw" class="w-4 h-4"></i>
+      </button>
+    </div>
+
+    <!-- Mobile sidebar toggle -->
+    <button id="mobile-toggle-btn" class="md:hidden absolute top-4 right-4 z-20 bg-slate-900/90 border border-slate-700 p-2.5 rounded-xl text-cyan-400">
+      <i data-lucide="sliders" class="w-5 h-5"></i>
+    </button>
+  </div>
+
+  <!-- Control Panel Sidebar -->
+  <aside id="sidebar" class="w-full md:w-84 lg:w-96 bg-slate-900/95 backdrop-blur-xl border-t md:border-t-0 md:border-l border-slate-800 p-5 flex flex-col justify-between overflow-y-auto custom-scrollbar transition-all duration-300 z-20 max-h-[50vh] md:max-h-full">
+    <div class="space-y-4">
+      <!-- Section Header -->
+      <div class="flex items-center justify-between pb-3 border-b border-slate-800">
+        <div class="flex items-center gap-2">
+          <i data-lucide="wrench" class="w-5 h-5 text-cyan-400"></i>
+          <h2 class="font-semibold text-xs tracking-wider text-slate-200 uppercase">Studio Lắp Ghép Cơ Khí</h2>
+        </div>
+        <span id="badge-parts-count" class="text-[10px] bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 px-2 py-0.5 rounded-full font-mono">0 Linh kiện</span>
+      </div>
+
+      <!-- Main Navigation Tabs -->
+      <div class="grid grid-cols-4 gap-1 bg-slate-950 p-1 rounded-xl border border-slate-800 text-[11px]">
+        <button id="nav-btn-library" onclick="setSidebarTab('library')" class="py-1.5 font-semibold rounded-lg bg-cyan-500 text-slate-950 transition-all flex items-center justify-center gap-1">
+          <i data-lucide="plus-circle" class="w-3.5 h-3.5"></i> Thêm
+        </button>
+        <button id="nav-btn-joinwizard" onclick="setSidebarTab('joinwizard')" class="py-1.5 font-medium rounded-lg text-slate-400 hover:text-slate-200 transition-all flex items-center justify-center gap-1">
+          <i data-lucide="git-merge" class="w-3.5 h-3.5"></i> Ghép 2
+        </button>
+        <button id="nav-btn-inspector" onclick="setSidebarTab('inspector')" class="py-1.5 font-medium rounded-lg text-slate-400 hover:text-slate-200 transition-all flex items-center justify-center gap-1">
+          <i data-lucide="sliders" class="w-3.5 h-3.5"></i> Chỉnh
+        </button>
+        <button id="nav-btn-joints" onclick="setSidebarTab('joints')" class="py-1.5 font-medium rounded-lg text-slate-400 hover:text-slate-200 transition-all flex items-center justify-center gap-1">
+          <i data-lucide="link" class="w-3.5 h-3.5"></i> Khớp (<span id="count-joints">0</span>)
+        </button>
+      </div>
+
+      <!-- TAB 1: LIBRARY & SPAWNER -->
+      <div id="tab-pane-library" class="space-y-4">
+        <div class="space-y-2">
+          <label class="text-[11px] font-semibold text-slate-400 uppercase tracking-wider block">1. Thêm Thanh & Dầm Kỹ Thuật</label>
+          <div class="grid grid-cols-2 gap-2">
+            <button onclick="spawnTechnicBeam(7, 0x94a3b8, 'Dầm Kỹ Thuật')" class="p-2.5 rounded-xl border border-slate-700/80 bg-slate-800/60 hover:border-cyan-400 hover:bg-slate-800 transition-all text-left flex flex-col gap-1">
+              <span class="text-xs font-semibold text-slate-200 flex items-center gap-1.5">
+                <i data-lucide="align-justify" class="w-3.5 h-3.5 text-cyan-400"></i> Dầm 7 Lỗ (Xám)
+              </span>
+              <span class="text-[10px] text-slate-400">Dầm dày có vành cữ chống trượt</span>
+            </button>
+            <button onclick="spawnTechnicBeam(7, 0x0284c7, 'Dầm Kỹ Thuật')" class="p-2.5 rounded-xl border border-slate-700/80 bg-slate-800/60 hover:border-cyan-400 hover:bg-slate-800 transition-all text-left flex flex-col gap-1">
+              <span class="text-xs font-semibold text-sky-300 flex items-center gap-1.5">
+                <i data-lucide="align-justify" class="w-3.5 h-3.5 text-sky-400"></i> Dầm 7 Lỗ (Xanh)
+              </span>
+              <span class="text-[10px] text-slate-400">Dầm kỹ thuật màu xanh</span>
+            </button>
+            <button onclick="spawnTechnicBeam(5, 0xa855f7, 'Dầm Kỹ Thuật')" class="p-2.5 rounded-xl border border-slate-700/80 bg-slate-800/60 hover:border-purple-400 hover:bg-slate-800 transition-all text-left flex flex-col gap-1">
+              <span class="text-xs font-semibold text-purple-300 flex items-center gap-1.5">
+                <i data-lucide="align-justify" class="w-3.5 h-3.5 text-purple-400"></i> Dầm 5 Lỗ (Tím)
+              </span>
+              <span class="text-[10px] text-slate-400">Dầm ngắn chiều dài 5 lỗ</span>
+            </button>
+            <button onclick="spawnDVBar(5)" class="p-2.5 rounded-xl border border-slate-700/80 bg-slate-800/60 hover:border-cyan-400 hover:bg-slate-800 transition-all text-left flex flex-col gap-1">
+              <span class="text-xs font-semibold text-slate-200 flex items-center gap-1.5">
+                <i data-lucide="binary" class="w-3.5 h-3.5 text-cyan-400"></i> Thanh DV (5 Lỗ)
+              </span>
+              <span class="text-[10px] text-slate-400">Thép CNC phay xước (235mm)</span>
+            </button>
+            <button onclick="spawnDVBar(3)" class="p-2.5 rounded-xl border border-slate-700/80 bg-slate-800/60 hover:border-cyan-400 hover:bg-slate-800 transition-all text-left flex flex-col gap-1">
+              <span class="text-xs font-semibold text-slate-200 flex items-center gap-1.5">
+                <i data-lucide="binary" class="w-3.5 h-3.5 text-cyan-400"></i> Thanh DV (3 Lỗ)
+              </span>
+              <span class="text-[10px] text-slate-400">Thép CNC ngắn (141mm)</span>
+            </button>
+            <button onclick="spawnYellowBracket()" class="p-2.5 rounded-xl border border-slate-700/80 bg-slate-800/60 hover:border-amber-400 hover:bg-slate-800 transition-all text-left flex flex-col gap-1">
+              <span class="text-xs font-semibold text-amber-300 flex items-center gap-1.5">
+                <i data-lucide="component" class="w-3.5 h-3.5 text-amber-400"></i> Nẹp Dập Sơn Vàng
+              </span>
+              <span class="text-[10px] text-slate-400">3 Lỗ bo viền dập chìm</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="space-y-2">
+          <label class="text-[11px] font-semibold text-slate-400 uppercase tracking-wider block">2. Thêm Chốt & Cụm Lắp Ghép Nhanh</label>
+          <div class="grid grid-cols-2 gap-2">
+            <button onclick="spawnStandalonePin()" class="p-2.5 rounded-xl border border-slate-700/80 bg-slate-800/60 hover:border-cyan-400 hover:bg-slate-800 transition-all text-left flex flex-col gap-1">
+              <span class="text-xs font-semibold text-slate-200 flex items-center gap-1.5">
+                <i data-lucide="link" class="w-3.5 h-3.5 text-cyan-400"></i> Chốt Trục Đàn Hồi
+              </span>
+              <span class="text-[10px] text-slate-400">Trục ngàm snap-fit có vành cữ</span>
+            </button>
+            <button onclick="spawnAssemblyCombo('parallel')" class="p-2.5 rounded-xl border border-cyan-500/50 bg-cyan-950/30 hover:border-cyan-400 hover:bg-cyan-900/40 transition-all text-left flex flex-col gap-1">
+              <span class="text-xs font-semibold text-cyan-300 flex items-center gap-1.5">
+                <i data-lucide="layers" class="w-3.5 h-3.5 text-cyan-400"></i> 2 Thanh Song Song
+              </span>
+              <span class="text-[10px] text-cyan-200/80">Khởi tạo 2 thanh & 1 chốt sẵn</span>
+            </button>
+            <button onclick="spawnAssemblyCombo('l-shape')" class="p-2.5 rounded-xl border border-slate-700/80 bg-slate-800/60 hover:border-amber-400 hover:bg-slate-800 transition-all text-left flex flex-col gap-1">
+              <span class="text-xs font-semibold text-amber-300 flex items-center gap-1.5">
+                <i data-lucide="corner-down-right" class="w-3.5 h-3.5 text-amber-400"></i> Khớp Chữ L (90°)
+              </span>
+              <span class="text-[10px] text-slate-400">Ghép vuông góc 90 độ</span>
+            </button>
+            <button onclick="spawnAssemblyCombo('scissor')" class="p-2.5 rounded-xl border border-slate-700/80 bg-slate-800/60 hover:border-purple-400 hover:bg-slate-800 transition-all text-left flex flex-col gap-1">
+              <span class="text-xs font-semibold text-purple-300 flex items-center gap-1.5">
+                <i data-lucide="scissors" class="w-3.5 h-3.5 text-purple-400"></i> Khớp Kéo Cắt (Hole 4)
+              </span>
+              <span class="text-[10px] text-slate-400">Bắt chốt ở lỗ trung tâm</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="pt-1">
+          <button onclick="clearAllParts()" class="w-full py-2 px-3 rounded-xl border border-rose-500/40 bg-rose-950/20 hover:bg-rose-950/40 text-rose-300 text-xs font-semibold transition-all flex items-center justify-center gap-2">
+            <i data-lucide="trash-2" class="w-3.5 h-3.5"></i> Xóa Hết Tất Cả Linh Kiện
+          </button>
+        </div>
+      </div>
+
+      <!-- TAB 2: 2-BAR JOIN WIZARD (TRÌNH GHÉP 2 THANH TRỰC QUAN) -->
+      <div id="tab-pane-joinwizard" class="hidden space-y-4">
+        <div class="bg-gradient-to-br from-cyan-950/40 to-slate-900 p-4 rounded-2xl border border-cyan-500/40 space-y-3.5">
+          <div class="flex items-center justify-between border-b border-cyan-500/20 pb-2">
+            <span class="text-xs font-bold text-cyan-300 flex items-center gap-1.5">
+              <i data-lucide="git-merge" class="w-4 h-4 text-cyan-400"></i> Ghép Nối 2 Thanh Trực Tiếp
+            </span>
+            <span class="text-[10px] bg-cyan-500/20 text-cyan-300 px-2 py-0.5 rounded-md font-mono">Wizard</span>
+          </div>
+
+          <p class="text-[11px] text-slate-300 leading-relaxed">
+            Chọn 2 thanh cần ghép và chỉ định lỗ cắm chốt. Trục chốt đàn hồi sẽ tự động liên kết tâm 2 lỗ lại với nhau:
+          </p>
+
+          <!-- Thanh 1 Selection Card -->
+          <div class="bg-slate-900/80 p-3 rounded-xl border border-slate-700/80 space-y-2">
+            <div class="flex items-center justify-between text-xs font-semibold text-slate-200">
+              <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-cyan-400"></span> Thanh 1 (Thanh cơ sở)</span>
+              <span id="badge-join-part-a" class="text-[10px] text-cyan-400 font-mono font-normal">Chưa chọn</span>
+            </div>
+            <select id="select-join-part-a" onchange="onJoinPartAChange()" class="w-full bg-slate-950 border border-slate-700 rounded-lg p-2 text-xs text-slate-200 focus:border-cyan-400 focus:outline-none">
+              <option value="">-- Chọn Thanh 1 --</option>
+            </select>
+            <div class="flex items-center gap-2 pt-1">
+              <label class="text-[11px] text-slate-400 shrink-0">Tại vị trí lỗ:</label>
+              <select id="select-join-hole-a" class="flex-1 bg-slate-950 border border-slate-700 rounded-lg p-1.5 text-xs text-cyan-300 font-mono focus:border-cyan-400 focus:outline-none">
+                <option value="0">Lỗ số 1</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Thanh 2 Selection Card -->
+          <div class="bg-slate-900/80 p-3 rounded-xl border border-slate-700/80 space-y-2">
+            <div class="flex items-center justify-between text-xs font-semibold text-slate-200">
+              <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-amber-400"></span> Thanh 2 (Thanh xoay ghép vào)</span>
+              <span id="badge-join-part-b" class="text-[10px] text-amber-400 font-mono font-normal">Chưa chọn</span>
+            </div>
+            <select id="select-join-part-b" onchange="onJoinPartBChange()" class="w-full bg-slate-950 border border-slate-700 rounded-lg p-2 text-xs text-slate-200 focus:border-amber-400 focus:outline-none">
+              <option value="">-- Chọn Thanh 2 --</option>
+            </select>
+            <div class="flex items-center gap-2 pt-1">
+              <label class="text-[11px] text-slate-400 shrink-0">Tại vị trí lỗ:</label>
+              <select id="select-join-hole-b" class="flex-1 bg-slate-950 border border-slate-700 rounded-lg p-1.5 text-xs text-amber-300 font-mono focus:border-amber-400 focus:outline-none">
+                <option value="0">Lỗ số 1</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Angle Preset selector -->
+          <div class="space-y-1.5">
+            <div class="flex justify-between text-[11px] text-slate-300">
+              <span>Góc xoay ban đầu:</span>
+              <span id="label-join-angle" class="font-mono text-cyan-400 font-bold">45° (Góc chéo)</span>
+            </div>
+            <div class="grid grid-cols-4 gap-1">
+              <button onclick="setJoinInitialAngle(0, '0° (Song song)')" class="py-1 rounded bg-slate-800 hover:bg-slate-700 text-[10px] text-slate-300">0°</button>
+              <button onclick="setJoinInitialAngle(45, '45° (Góc chéo)')" class="py-1 rounded bg-slate-800 hover:bg-slate-700 text-[10px] text-cyan-400">45°</button>
+              <button onclick="setJoinInitialAngle(90, '90° (Vuông góc)')" class="py-1 rounded bg-slate-800 hover:bg-slate-700 text-[10px] text-slate-300">90°</button>
+              <button onclick="setJoinInitialAngle(180, '180° (Nối dài)')" class="py-1 rounded bg-slate-800 hover:bg-slate-700 text-[10px] text-slate-300">180°</button>
+            </div>
+          </div>
+
+          <!-- Execute Join Button -->
+          <button onclick="executeDirectJoin()" class="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-cyan-500 to-sky-500 hover:from-cyan-400 hover:to-sky-400 text-slate-950 font-bold text-xs tracking-wide shadow-lg shadow-cyan-500/20 transition-all flex items-center justify-center gap-2">
+            <i data-lucide="check-circle-2" class="w-4 h-4"></i> Ghép 2 Thanh Bằng Chốt Nối
+          </button>
+        </div>
+
+        <div class="bg-slate-800/40 p-3 rounded-xl border border-slate-700/50 space-y-1.5 text-[11px] text-slate-400">
+          <p class="font-semibold text-slate-300 flex items-center gap-1.5">
+            <i data-lucide="info" class="w-3.5 h-3.5 text-cyan-400"></i> Cách ghép bằng nhấp chuột 3D:
+          </p>
+          <p>1. Chọn thanh muốn cắm chốt (các huy hiệu số lỗ sẽ nổi lên).</p>
+          <p>2. Bấm vào nút số lỗ trong mục "Chi Tiết" hoặc bấm "Ghép Nối".</p>
+          <p>3. Nhấp trực tiếp vào một lỗ trên thanh khác trong màn hình 3D.</p>
+        </div>
+      </div>
+
+      <!-- TAB 3: INSPECTOR & HOLE SNAPPING -->
+      <div id="tab-pane-inspector" class="hidden space-y-4">
+        <div id="inspector-no-selection" class="p-5 rounded-2xl bg-slate-800/30 border border-slate-700/40 text-center space-y-2">
+          <i data-lucide="mouse-pointer" class="w-6 h-6 text-slate-500 mx-auto"></i>
+          <p class="text-xs text-slate-400">Nhấp chuột trực tiếp vào bất kỳ thanh nào trên màn hình 3D để chọn chi tiết đó.</p>
+        </div>
+
+        <div id="inspector-active-panel" class="hidden space-y-4">
+          <!-- Part Header Card -->
+          <div class="bg-slate-800/50 p-3 rounded-2xl border border-slate-700/60 space-y-2">
+            <div class="flex items-center justify-between">
+              <span id="inspect-part-title" class="font-bold text-sm text-cyan-300">Dầm Kỹ Thuật (7 Lỗ)</span>
+              <button onclick="deleteSelectedPart()" class="p-1 rounded-lg text-rose-400 hover:bg-rose-900/40 transition-colors" title="Xóa chi tiết này">
+                <i data-lucide="trash-2" class="w-4 h-4"></i>
+              </button>
+            </div>
+            <span id="inspect-part-id" class="text-[10px] font-mono text-slate-400 block">ID: part_1</span>
+            
+            <div class="flex gap-2 pt-1">
+              <button onclick="duplicateSelectedPart()" class="flex-1 py-1 px-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 text-xs font-medium transition-colors flex items-center justify-center gap-1">
+                <i data-lucide="copy" class="w-3 h-3"></i> Nhân bản
+              </button>
+              <button onclick="openJoinWizardForSelected()" class="flex-1 py-1 px-2 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-slate-950 text-xs font-semibold transition-colors flex items-center justify-center gap-1">
+                <i data-lucide="link" class="w-3 h-3"></i> Ghép thanh
+              </button>
+              <button onclick="exportToGLB(true)" class="flex-1 py-1 px-2 rounded-lg bg-emerald-600/80 hover:bg-emerald-500 text-slate-950 text-xs font-semibold transition-colors flex items-center justify-center gap-1" title="Xuất riêng chi tiết này thành file .GLB">
+                <i data-lucide="download" class="w-3 h-3"></i> Xuất GLB
+              </button>
+            </div>
+          </div>
+
+          <!-- Hole Snapping Engine Panel -->
+          <div class="bg-cyan-950/25 p-3.5 rounded-2xl border border-cyan-500/30 space-y-2.5">
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-bold text-cyan-300 flex items-center gap-1.5">
+                <i data-lucide="crosshair" class="w-3.5 h-3.5"></i> Chọn Lỗ Để Ghép Nối
+              </span>
+              <span class="text-[10px] text-cyan-400 font-mono">Snap Pin</span>
+            </div>
+            <p class="text-[11px] text-slate-300 leading-tight">
+              Bấm chọn một lỗ bên dưới, sau đó bấm chọn một lỗ trên thanh khác trong không gian 3D để chốt ngàm tự động liên kết:
+            </p>
+            <div id="inspector-holes-list" class="flex flex-wrap gap-1.5 pt-1">
+              <!-- Dynamically inserted hole buttons -->
+            </div>
+          </div>
+
+          <!-- Position & Rotation Adjustments -->
+          <div class="bg-slate-800/40 p-3 rounded-2xl border border-slate-700/50 space-y-3 text-xs">
+            <span class="font-semibold text-slate-300 block">Tọa Độ & Góc Xoay Chi Tiết</span>
+            <div class="grid grid-cols-3 gap-2">
+              <div>
+                <label class="text-[10px] text-slate-400 block mb-1">Trục X</label>
+                <input type="number" id="inp-pos-x" step="0.5" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-1.5 text-xs text-slate-200">
+              </div>
+              <div>
+                <label class="text-[10px] text-slate-400 block mb-1">Trục Y</label>
+                <input type="number" id="inp-pos-y" step="0.5" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-1.5 text-xs text-slate-200">
+              </div>
+              <div>
+                <label class="text-[10px] text-slate-400 block mb-1">Trục Z</label>
+                <input type="number" id="inp-pos-z" step="0.5" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-1.5 text-xs text-slate-200">
+              </div>
+            </div>
+            <div>
+              <div class="flex justify-between text-[11px] text-slate-300 mb-1">
+                <span>Xoay quanh trục đứng (Y):</span>
+                <span id="val-part-rot" class="font-mono text-cyan-400">0°</span>
+              </div>
+              <input type="range" id="inp-part-rot" min="-180" max="180" value="0" step="1" class="w-full h-1.5 bg-slate-700 rounded-lg cursor-pointer">
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- TAB 4: JOINTS MANAGEMENT -->
+      <div id="tab-pane-joints" class="hidden space-y-3">
+        <div id="joints-empty-msg" class="p-5 rounded-2xl bg-slate-800/30 border border-slate-700/40 text-center space-y-1">
+          <i data-lucide="unlink" class="w-6 h-6 text-slate-500 mx-auto"></i>
+          <p class="text-xs text-slate-400">Chưa có khớp ghép nào được tạo.</p>
+          <p class="text-[11px] text-slate-500">Dùng tab "Ghép 2" hoặc chọn một lỗ trên thanh để tạo liên kết chốt ngàm.</p>
+        </div>
+
+        <div id="joints-list-container" class="space-y-2.5">
+          <!-- Dynamically inserted joint control cards -->
+        </div>
+      </div>
+
+      <!-- Material & Appearance Controls -->
+      <div class="space-y-3 pt-3 border-t border-slate-800">
+        <h3 class="text-xs font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+          <i data-lucide="palette" class="w-3.5 h-3.5 text-cyan-400"></i> Vật Liệu & Bề Mặt
+        </h3>
+
+        <!-- Material Presets -->
+        <div class="grid grid-cols-3 gap-1.5">
+          <button onclick="applyPreset('matte-plastic')" class="py-2 px-1 rounded-xl border border-slate-700 bg-slate-800 text-[10px] text-slate-200 hover:border-cyan-400 flex flex-col items-center gap-1 text-center transition-colors">
+            <div class="w-3.5 h-3.5 rounded-full bg-slate-900 border border-slate-600 shadow"></div>
+            Nhựa POM đen
+          </button>
+          <button onclick="applyPreset('brushed-steel')" class="py-2 px-1 rounded-xl border border-cyan-500/40 bg-slate-800 text-[10px] text-slate-200 hover:border-cyan-400 flex flex-col items-center gap-1 text-center transition-colors">
+            <div class="w-3.5 h-3.5 rounded-full bg-gradient-to-tr from-slate-400 via-slate-200 to-slate-500 shadow"></div>
+            Thép CNC
+          </button>
+          <button onclick="applyPreset('yellow-paint')" class="py-2 px-1 rounded-xl border border-slate-700 bg-slate-800 text-[10px] text-slate-200 hover:border-amber-400 flex flex-col items-center gap-1 text-center transition-colors">
+            <div class="w-3.5 h-3.5 rounded-full bg-[#E8A716] shadow"></div>
+            Sơn vàng CAT
+          </button>
+        </div>
+
+        <!-- Color Quick Selection for Selected Part -->
+        <div>
+          <span class="text-[11px] text-slate-300 block mb-1.5">Đổi màu chi tiết đang chọn</span>
+          <div class="flex items-center gap-2">
+            <button onclick="setPartColor('#1e293b')" class="w-6 h-6 rounded-full bg-[#1e293b] border border-slate-600 hover:scale-110 transition-transform shadow" title="Đen kỹ thuật"></button>
+            <button onclick="setPartColor('#94a3b8')" class="w-6 h-6 rounded-full bg-[#94a3b8] border border-slate-500 hover:scale-110 transition-transform shadow" title="Xám dầm chuẩn"></button>
+            <button onclick="setPartColor('#0284c7')" class="w-6 h-6 rounded-full bg-[#0284c7] border border-sky-400 hover:scale-110 transition-transform shadow" title="Xanh dương"></button>
+            <button onclick="setPartColor('#e8a716')" class="w-6 h-6 rounded-full bg-[#e8a716] border border-amber-300 hover:scale-110 transition-transform shadow" title="Vàng công nghiệp"></button>
+            <button onclick="setPartColor('#10b981')" class="w-6 h-6 rounded-full bg-[#10b981] border border-emerald-400 hover:scale-110 transition-transform shadow" title="Xanh lục"></button>
+            <button onclick="setPartColor('#a855f7')" class="w-6 h-6 rounded-full bg-[#a855f7] border border-purple-400 hover:scale-110 transition-transform shadow" title="Tím"></button>
+            <label class="w-6 h-6 rounded-full border border-slate-600 flex items-center justify-center cursor-pointer hover:border-cyan-400 transition-colors relative overflow-hidden" title="Mã màu tùy chỉnh">
+              <input type="color" id="input-color-picker" value="#94a3b8" onchange="setPartColor(this.value)" class="absolute -top-3 -left-3 w-12 h-12 cursor-pointer">
+              <i data-lucide="plus" class="w-2.5 h-2.5 text-slate-400"></i>
+            </label>
+          </div>
+        </div>
+
+        <!-- Wireframe & Coordinates Toggles -->
+        <div class="flex items-center justify-between text-xs pt-1">
+          <label for="check-wireframe" class="text-slate-300 cursor-pointer">Khung lưới Wireframe</label>
+          <input type="checkbox" id="check-wireframe" class="w-4 h-4 rounded bg-slate-800 border-slate-700 text-cyan-500 focus:ring-cyan-500 cursor-pointer">
+        </div>
+        <div class="flex items-center justify-between text-xs">
+          <label for="check-axes" class="text-slate-300 cursor-pointer">Trục tọa độ kỹ thuật XYZ</label>
+          <input type="checkbox" id="check-axes" class="w-4 h-4 rounded bg-slate-800 border-slate-700 text-cyan-500 focus:ring-cyan-500 cursor-pointer">
+        </div>
+
+        <!-- Export Center Panel -->
+        <div class="pt-2">
+          <button onclick="exportToGLB(false)" class="w-full py-2.5 px-3 rounded-xl border border-emerald-500/40 bg-emerald-950/30 hover:bg-emerald-950/60 text-emerald-300 text-xs font-semibold transition-all flex items-center justify-center gap-2 shadow-lg shadow-emerald-950/20">
+            <i data-lucide="download" class="w-4 h-4 text-emerald-400"></i> Xuất Toàn Bộ Cụm Lắp Ghép (.GLB)
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Technical Specs Footer -->
+    <div class="pt-3 mt-3 border-t border-slate-800 text-[10px] text-slate-400 space-y-1">
+      <div class="flex justify-between">
+        <span>Cơ chế ghép nối:</span>
+        <span class="text-slate-200 font-medium">Bắt tâm lỗ tự động & chốt ngàm đàn hồi</span>
+      </div>
+      <div class="flex justify-between">
+        <span>Thao tác:</span>
+        <span class="text-slate-200 font-medium">Chuột trái xoay • Phải trượt • Cuộn zoom</span>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Load scripts theo thứ tự mới -->
+  <script src="js/state.js"></script>
+  <script src="js/utils.js"></script>
+  <script src="js/geometry.js"></script>
+  <script src="js/partsManager.js"></script>
+  <script src="js/transformTools.js"></script>
+  <script src="js/interactionManager.js"></script> <!-- ADDED -->
+  <script src="js/jointsManager.js"></script>
+  <script src="js/ui.js"></script>
+  <script src="js/scene.js"></script>
+  <script src="js/exporter.js"></script>
+  <script src="js/main.js"></script>
+</body>
+</html>
