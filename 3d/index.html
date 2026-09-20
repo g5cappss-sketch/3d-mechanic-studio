@@ -1,0 +1,433 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mô Hình 3D Lắp Ghép Thanh & Trục Cơ Khí</title>
+  
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/TransformControls.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/exporters/GLTFExporter.js"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body class="bg-[#0b1121] text-slate-100 h-screen w-screen flex flex-col md:flex-row relative selection:bg-cyan-500/30">
+
+  <!-- Popup Ảnh Preview khi Hover Model -->
+  <div id="hover-preview-tooltip" class="hidden absolute z-50 bg-slate-900/95 backdrop-blur-md border border-slate-700/80 rounded-2xl p-3 shadow-[0_10px_40px_rgba(0,0,0,0.8)] pointer-events-none transform -translate-y-full -translate-x-1/2 mt-[-10px]">
+     <img id="preview-image" src="" class="w-32 h-32 object-contain bg-[#0f172a] rounded-xl border border-slate-800" alt="Preview">
+     <p id="preview-desc" class="text-[11px] font-bold text-cyan-400 text-center mt-2.5 uppercase tracking-wide"></p>
+  </div>
+
+  <!-- Bảng Lịch Sử Lắp Ráp (Timeline) -->
+  <div id="timeline-panel" class="hidden absolute bottom-24 left-1/2 -translate-x-1/2 z-40 bg-slate-900/95 backdrop-blur-2xl border border-slate-700/80 rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.7)] w-[340px] max-h-72 flex flex-col overflow-hidden transition-all duration-300">
+    <div class="p-3.5 border-b border-slate-800/80 flex justify-between items-center bg-slate-800/20">
+      <h3 class="text-xs font-bold text-slate-200 flex items-center gap-2"><i data-lucide="history" class="w-4 h-4 text-cyan-400"></i> LỊCH SỬ THAO TÁC</h3>
+      <button onclick="toggleTimelinePanel()" class="text-slate-500 hover:text-rose-400 transition-colors p-1 bg-slate-800/50 hover:bg-slate-800 rounded-lg"><i data-lucide="x" class="w-4 h-4"></i></button>
+    </div>
+    <ul id="timeline-list" class="p-2 overflow-y-auto custom-scrollbar flex-1 space-y-1">
+      <!-- Các bước lắp ráp sẽ tự động đổ vào đây -->
+    </ul>
+  </div>
+
+  <!-- 3D Canvas Area -->
+  <div id="canvas-container" class="relative flex-1 h-full w-full bg-gradient-to-br from-[#0f172a] to-black overflow-hidden shadow-[inset_0_0_100px_rgba(0,0,0,0.5)]">
+    <canvas id="webgl-canvas" class="w-full h-full block cursor-grab active:cursor-grabbing"></canvas>
+
+    <!-- Top Floating Header Info -->
+    <div class="absolute top-5 left-5 z-10 pointer-events-none">
+      <div class="bg-slate-900/80 backdrop-blur-xl border border-slate-700/50 rounded-2xl px-5 py-4 shadow-2xl max-w-md ring-1 ring-white/5">
+        <div class="flex items-center space-x-3">
+          <div id="status-dot" class="w-2.5 h-2.5 rounded-full bg-cyan-400 animate-pulse shadow-[0_0_10px_rgba(34,211,238,0.8)]"></div>
+          <h1 id="model-header-title" class="text-sm md:text-base font-bold text-white tracking-wide">Studio Lắp Ghép Cơ Khí 3D</h1>
+        </div>
+        <p id="model-header-subtitle" class="text-[11px] md:text-xs text-slate-400 mt-1.5 leading-relaxed">Chọn thanh, bắt điểm lỗ & mô phỏng xoay góc bản lề thực tế</p>
+      </div>
+    </div>
+
+    <!-- Active Snapping Guide Banner -->
+    <div id="snap-guide-banner" class="hidden absolute top-5 left-1/2 -translate-x-1/2 z-20 bg-cyan-600/90 backdrop-blur-lg border border-cyan-400/50 text-white px-6 py-3 rounded-full shadow-[0_10px_30px_rgba(8,145,178,0.4)] flex items-center gap-3 transition-all">
+      <i data-lucide="crosshair" class="w-5 h-5 animate-spin"></i>
+      <span id="snap-guide-text" class="text-xs font-bold tracking-wide">Chọn một lỗ trên thanh khác để hoàn tất cắm chốt nối.</span>
+      <button onclick="cancelSnapMode()" class="px-4 py-1.5 text-[10px] font-bold uppercase tracking-wider bg-slate-950/40 hover:bg-slate-950/70 rounded-full transition-colors">Hủy</button>
+    </div>
+
+    <!-- Floating HUD cho Part đang chọn -->
+    <div id="floating-part-hud" class="hidden absolute top-32 left-5 z-10 bg-slate-900/90 backdrop-blur-xl border border-cyan-500/40 rounded-2xl p-4 shadow-2xl flex items-center gap-4 max-w-xs transition-all duration-300 ring-1 ring-cyan-500/20">
+      <div class="w-2.5 h-2.5 rounded-full bg-cyan-400 shadow-[0_0_10px_rgba(34,211,238,0.8)]"></div>
+      <div class="flex-1 min-w-0">
+        <p class="text-[9px] text-slate-400 uppercase font-mono tracking-widest mb-1">Đang thao tác</p>
+        <p id="floating-part-name" class="text-sm font-bold text-cyan-200 truncate">Dầm Kỹ Thuật</p>
+      </div>
+      <button onclick="openJoinWizardForSelected()" class="px-4 py-2 text-xs font-bold rounded-xl bg-gradient-to-r from-cyan-500 to-blue-500 hover:from-cyan-400 hover:to-blue-400 text-white flex items-center gap-2 shadow-lg shadow-cyan-500/30 transition-all">
+        <i data-lucide="link" class="w-4 h-4"></i> Ghép
+      </button>
+    </div>
+
+    <!-- TOOLBAR ĐIỀU KHIỂN TRUNG TÂM (DOCK CAO CẤP) -->
+    <div class="absolute bottom-6 left-1/2 -translate-x-1/2 z-30 flex flex-wrap items-center justify-center bg-[#0f172a]/95 backdrop-blur-xl border border-slate-700/60 p-2 rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.8)] ring-1 ring-white/10 gap-2 transition-all">
+      
+      <!-- Cụm công cụ tương tác -->
+      <div class="flex items-center bg-[#020617]/80 rounded-xl p-1 shadow-inner border border-slate-800/80 gap-0.5">
+        <button id="tool-btn-select" onclick="setInteractionTool('select')" class="group px-4 py-2.5 rounded-lg text-[11px] font-bold text-white bg-slate-800 border border-slate-500 shadow-md transition-all flex items-center gap-2" title="Chọn Vật Thể">
+          <i data-lucide="mouse-pointer-2" class="w-4 h-4 text-cyan-400"></i> <span class="hidden md:inline">Chọn</span>
+        </button>
+        <button id="tool-btn-translate" onclick="setInteractionTool('translate')" class="group px-4 py-2.5 rounded-lg text-[11px] font-bold text-slate-400 border border-transparent hover:text-white hover:bg-slate-800/50 transition-all flex items-center gap-2" title="Kéo di chuyển">
+          <i data-lucide="move" class="w-4 h-4 group-hover:text-amber-400 transition-colors"></i> <span class="hidden md:inline">Kéo</span>
+        </button>
+        <button id="tool-btn-rotate" onclick="setInteractionTool('rotate')" ondblclick="resetSelectedRotation()" class="group px-4 py-2.5 rounded-lg text-[11px] font-bold text-slate-400 border border-transparent hover:text-white hover:bg-slate-800/50 transition-all flex items-center gap-2" title="Nhấn đúp (Double-click) để Reset Góc">
+          <i data-lucide="rotate-3d" class="w-4 h-4 group-hover:text-purple-400 transition-colors"></i> <span class="hidden md:inline">Xoay</span>
+        </button>
+      </div>
+
+      <div class="h-8 w-px bg-slate-700/60 mx-1"></div>
+
+      <!-- Cụm công cụ Lịch sử -->
+      <div class="flex items-center gap-1 bg-slate-800/30 p-1 rounded-xl border border-slate-700/40">
+        <button onclick="if(typeof undoHistory === 'function') undoHistory();" class="p-2.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-700 transition-colors" title="Lùi lại (Undo)">
+          <i data-lucide="undo-2" class="w-4 h-4"></i>
+        </button>
+        <button onclick="if(typeof redoHistory === 'function') redoHistory();" class="p-2.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-700 transition-colors" title="Tiến tới (Redo)">
+          <i data-lucide="redo-2" class="w-4 h-4"></i>
+        </button>
+        <button onclick="if(typeof toggleTimelinePanel === 'function') toggleTimelinePanel();" class="p-2.5 rounded-lg text-slate-400 hover:text-cyan-400 hover:bg-slate-700 transition-colors" title="Xem Tutorial Lắp Ráp">
+          <i data-lucide="list-video" class="w-4 h-4"></i>
+        </button>
+      </div>
+
+      <div class="h-8 w-px bg-slate-700/60 mx-1 hidden sm:block"></div>
+
+      <!-- Góc nhìn Camera -->
+      <div class="relative group hidden sm:block">
+        <button class="px-4 py-2.5 rounded-xl text-[11px] font-bold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-600/50 transition-all flex items-center gap-2 shadow-sm">
+          <i data-lucide="camera" class="w-4 h-4 text-sky-400"></i> Góc Nhìn
+          <i data-lucide="chevron-up" class="w-3 h-3 opacity-60 group-hover:rotate-180 transition-transform duration-300"></i>
+        </button>
+        <div class="absolute bottom-full left-1/2 -translate-x-1/2 mb-3 opacity-0 translate-y-4 invisible group-hover:opacity-100 group-hover:translate-y-0 group-hover:visible transition-all duration-300 ease-out flex flex-col bg-slate-800/95 backdrop-blur-xl border border-slate-600 rounded-xl p-2 shadow-2xl min-w-[150px] z-50">
+          <button onclick="setCameraView('iso')" class="px-4 py-3 rounded-lg text-xs font-semibold text-slate-300 hover:bg-slate-700 hover:text-white flex items-center gap-3 transition-colors">
+            <i data-lucide="box" class="w-4 h-4 text-slate-400"></i> Phối cảnh 3D
+          </button>
+          <button onclick="setCameraView('top')" class="px-4 py-3 rounded-lg text-xs font-semibold text-slate-300 hover:bg-slate-700 hover:text-white flex items-center gap-3 transition-colors">
+            <i data-lucide="arrow-down" class="w-4 h-4 text-slate-400"></i> Nhìn từ trên
+          </button>
+          <button onclick="setCameraView('front')" class="px-4 py-3 rounded-lg text-xs font-semibold text-slate-300 hover:bg-slate-700 hover:text-white flex items-center gap-3 transition-colors">
+            <i data-lucide="layout-template" class="w-4 h-4 text-slate-400"></i> Nhìn mặt cạnh
+          </button>
+        </div>
+      </div>
+
+      <div class="h-8 w-px bg-slate-700/60 mx-1"></div>
+
+      <!-- Công cụ hệ thống -->
+      <button id="btn-explode" onclick="toggleAssemblyExplode()" class="px-4 py-2.5 rounded-xl text-[11px] font-bold bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-600/50 transition-all flex items-center gap-2 shadow-sm" title="Tách rời các khớp nối">
+        <i data-lucide="unfold-horizontal" class="w-4 h-4 text-amber-400"></i> <span id="label-explode" class="hidden md:inline">Tách Rời</span>
+      </button>
+
+      <button onclick="exportToGLB(false)" class="px-4 py-2.5 rounded-xl text-[11px] font-bold bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400 border border-emerald-500/30 transition-all flex items-center gap-2 shadow-sm" title="Xuất toàn bộ file">
+        <i data-lucide="download" class="w-4 h-4"></i> <span class="hidden md:inline">Xuất .GLB</span>
+      </button>
+    </div>
+
+    <!-- Mobile sidebar toggle -->
+    <button id="mobile-toggle-btn" class="md:hidden absolute top-5 right-5 z-20 bg-slate-900/90 backdrop-blur-md border border-slate-700 p-3 rounded-xl text-cyan-400 shadow-lg ring-1 ring-white/10">
+      <i data-lucide="sliders" class="w-6 h-6"></i>
+    </button>
+  </div>
+
+  <!-- CONTROL PANEL SIDEBAR (GIỮ NGUYÊN BẢN CẤU TRÚC TAB GỐC) -->
+  <aside id="sidebar" class="w-full md:w-[400px] bg-[#0f172a]/95 backdrop-blur-3xl border-l border-slate-700/60 p-6 flex flex-col justify-between overflow-y-auto custom-scrollbar transition-all duration-300 z-20 shadow-[-20px_0_50px_rgba(0,0,0,0.6)]">
+    <div class="space-y-6">
+      
+      <!-- Section Header -->
+      <div class="flex items-center justify-between pb-4 border-b border-slate-700/60">
+        <div class="flex items-center gap-3">
+          <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-cyan-400 to-blue-600 flex items-center justify-center shadow-[0_0_20px_rgba(34,211,238,0.3)] ring-1 ring-white/20">
+            <i data-lucide="wrench" class="w-5 h-5 text-white"></i>
+          </div>
+          <h2 class="font-black text-sm tracking-widest text-white uppercase">Studio Lắp Ghép</h2>
+        </div>
+        <span id="badge-parts-count" class="text-xs bg-slate-950/60 border border-slate-700 text-cyan-400 px-3 py-1.5 rounded-full font-mono shadow-inner ring-1 ring-white/5">0 Linh kiện</span>
+      </div>
+
+      <!-- Main Navigation Tabs (Đã chuyển thành Grid 2x2 để chữ hiển thị rõ ràng) -->
+      <div class="grid grid-cols-2 gap-2 bg-slate-950/60 p-2 rounded-2xl border border-slate-800/80 shadow-inner ring-1 ring-white/5">
+        <button id="nav-btn-library" onclick="setSidebarTab('library')" class="py-2.5 font-bold text-[11px] uppercase tracking-wider rounded-xl bg-cyan-500 text-slate-950 shadow-md transition-all flex items-center justify-center gap-2">
+          <i data-lucide="grid" class="w-4 h-4"></i> Thêm
+        </button>
+        <button id="nav-btn-joinwizard" onclick="setSidebarTab('joinwizard')" class="py-2.5 font-bold text-[11px] uppercase tracking-wider rounded-xl text-slate-400 hover:text-white hover:bg-slate-800/50 transition-all flex items-center justify-center gap-2">
+          <i data-lucide="git-merge" class="w-4 h-4"></i> Ghép 2
+        </button>
+        <button id="nav-btn-inspector" onclick="setSidebarTab('inspector')" class="py-2.5 font-bold text-[11px] uppercase tracking-wider rounded-xl text-slate-400 hover:text-white hover:bg-slate-800/50 transition-all flex items-center justify-center gap-2">
+          <i data-lucide="sliders-horizontal" class="w-4 h-4"></i> Chỉnh
+        </button>
+        <button id="nav-btn-joints" onclick="setSidebarTab('joints')" class="py-2.5 font-bold text-[11px] uppercase tracking-wider rounded-xl text-slate-400 hover:text-white hover:bg-slate-800/50 transition-all flex items-center justify-center gap-2">
+          <i data-lucide="link" class="w-4 h-4"></i> Khớp (<span id="count-joints">0</span>)
+        </button>
+      </div>
+
+      <!-- TAB 1: LIBRARY & SPAWNER -->
+      <div id="tab-pane-library" class="space-y-6">
+        
+        <!-- Nhóm 1 -->
+        <div class="space-y-3">
+          <label class="text-[11px] font-black text-cyan-400 uppercase tracking-widest flex items-center gap-2 mb-3">
+            <span class="w-5 h-5 rounded bg-cyan-500/20 flex items-center justify-center"><i data-lucide="columns" class="w-3 h-3 text-cyan-400"></i></span> 
+            1. Thanh & Dầm Kỹ Thuật
+          </label>
+          <div class="grid grid-cols-2 gap-3">
+            <!-- Card 3D Effect -->
+            <button onmouseenter="if(typeof showHoverPreview === 'function') showHoverPreview(event, 'Dầm 7 Lỗ chuẩn', 'https://placehold.co/200x200/1e293b/94a3b8?text=Beam+7')" onmouseleave="if(typeof hideHoverPreview === 'function') hideHoverPreview()" onclick="spawnTechnicBeam(7, 0x94a3b8, 'Dầm Kỹ Thuật'); if(typeof saveHistoryStep==='function') saveHistoryStep('Thêm Dầm 7 Lỗ');" class="group relative overflow-hidden p-4 rounded-2xl bg-gradient-to-b from-slate-800 to-slate-900 border border-slate-700 hover:border-cyan-400/50 text-left transition-all shadow-lg hover:shadow-cyan-500/10">
+              <div class="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-slate-500 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
+              <p class="text-xs font-bold text-white mb-1">Dầm 7 Lỗ (Xám)</p>
+              <p class="text-[10px] text-slate-400">Có vành cữ chống trượt</p>
+            </button>
+            <button onmouseenter="if(typeof showHoverPreview === 'function') showHoverPreview(event, 'Dầm 7 Lỗ Xanh', 'https://placehold.co/200x200/1e293b/0284c7?text=Beam+7')" onmouseleave="if(typeof hideHoverPreview === 'function') hideHoverPreview()" onclick="spawnTechnicBeam(7, 0x0284c7, 'Dầm Kỹ Thuật'); if(typeof saveHistoryStep==='function') saveHistoryStep('Thêm Dầm Xanh');" class="group relative overflow-hidden p-4 rounded-2xl bg-gradient-to-b from-slate-800 to-slate-900 border border-slate-700 hover:border-sky-400/50 text-left transition-all shadow-lg hover:shadow-sky-500/10">
+              <div class="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-sky-500 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
+              <p class="text-xs font-bold text-sky-400 mb-1">Dầm 7 Lỗ (Xanh)</p>
+              <p class="text-[10px] text-slate-400">Màu xanh dương</p>
+            </button>
+            <button onmouseenter="if(typeof showHoverPreview === 'function') showHoverPreview(event, 'Dầm 5 Lỗ ngắn', 'https://placehold.co/200x200/1e293b/a855f7?text=Beam+5')" onmouseleave="if(typeof hideHoverPreview === 'function') hideHoverPreview()" onclick="spawnTechnicBeam(5, 0xa855f7, 'Dầm Kỹ Thuật'); if(typeof saveHistoryStep==='function') saveHistoryStep('Thêm Dầm 5 Lỗ');" class="group relative overflow-hidden p-4 rounded-2xl bg-gradient-to-b from-slate-800 to-slate-900 border border-slate-700 hover:border-purple-400/50 text-left transition-all shadow-lg hover:shadow-purple-500/10">
+              <div class="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-purple-500 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
+              <p class="text-xs font-bold text-purple-400 mb-1">Dầm 5 Lỗ (Tím)</p>
+              <p class="text-[10px] text-slate-400">Dầm ngắn</p>
+            </button>
+            <button onmouseenter="if(typeof showHoverPreview === 'function') showHoverPreview(event, 'Thanh thép CNC', 'https://placehold.co/200x200/1e293b/cfd8dc?text=CNC+5')" onmouseleave="if(typeof hideHoverPreview === 'function') hideHoverPreview()" onclick="spawnDVBar(5); if(typeof saveHistoryStep==='function') saveHistoryStep('Thêm Thanh CNC 5');" class="group relative overflow-hidden p-4 rounded-2xl bg-gradient-to-b from-slate-800 to-slate-900 border border-slate-700 hover:border-slate-300/50 text-left transition-all shadow-lg hover:shadow-white/10">
+              <div class="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-slate-300 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
+              <p class="text-xs font-bold text-slate-300 mb-1">Thanh CNC (5L)</p>
+              <p class="text-[10px] text-slate-400">Thép phay xước</p>
+            </button>
+            <button onmouseenter="if(typeof showHoverPreview === 'function') showHoverPreview(event, 'Nẹp dập 3 lỗ', 'https://placehold.co/200x200/1e293b/f59e0b?text=Bracket')" onmouseleave="if(typeof hideHoverPreview === 'function') hideHoverPreview()" onclick="spawnYellowBracket(); if(typeof saveHistoryStep==='function') saveHistoryStep('Thêm Nẹp Vàng');" class="group col-span-2 relative overflow-hidden p-4 rounded-2xl bg-gradient-to-b from-slate-800 to-slate-900 border border-slate-700 hover:border-amber-400/50 text-center transition-all shadow-lg hover:shadow-amber-500/10">
+              <div class="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-amber-500 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
+              <p class="text-xs font-bold text-amber-400 mb-1">Nẹp Dập Sơn Vàng 3 Lỗ</p>
+              <p class="text-[10px] text-slate-400">Bo viền dập chìm công nghiệp</p>
+            </button>
+          </div>
+        </div>
+
+        <!-- Nhóm 2 -->
+        <div class="space-y-3">
+          <label class="text-[11px] font-black text-sky-400 uppercase tracking-widest block flex items-center gap-2 mb-3">
+            <span class="w-5 h-5 rounded bg-sky-500/20 flex items-center justify-center"><i data-lucide="settings-2" class="w-3 h-3 text-sky-400"></i></span> 
+            2. Chốt & Cụm Lắp Nhanh
+          </label>
+          <div class="grid grid-cols-2 gap-3">
+            <button onmouseenter="if(typeof showHoverPreview === 'function') showHoverPreview(event, 'Chốt nhựa đàn hồi', 'https://placehold.co/200x200/1e293b/38bdf8?text=Pin')" onmouseleave="if(typeof hideHoverPreview === 'function') hideHoverPreview()" onclick="spawnStandalonePin(); if(typeof saveHistoryStep==='function') saveHistoryStep('Thêm Chốt Rời');" class="col-span-2 group/btn p-4 rounded-2xl bg-gradient-to-r from-cyan-900/40 to-blue-900/30 hover:from-cyan-800/60 hover:to-blue-800/50 border border-cyan-700/50 flex items-center justify-between transition-all shadow-[inset_0_1px_10px_rgba(34,211,238,0.1)]">
+              <div class="flex items-center gap-3">
+                <div class="p-2.5 bg-slate-950/80 rounded-xl shadow-inner"><i data-lucide="link" class="w-5 h-5 text-cyan-400"></i></div>
+                <div class="text-left">
+                  <p class="text-sm font-bold text-cyan-300">Chốt Trục Đàn Hồi</p>
+                  <p class="text-[10px] text-cyan-500/70 mt-0.5">Trục ngàm snap-fit Ø28mm</p>
+                </div>
+              </div>
+              <i data-lucide="plus-circle" class="w-5 h-5 text-cyan-600 group-hover/btn:text-cyan-400 transition-colors"></i>
+            </button>
+            
+            <button onclick="spawnAssemblyCombo('parallel'); if(typeof saveHistoryStep==='function') saveHistoryStep('Tạo combo Song song');" class="p-3.5 rounded-2xl bg-slate-800/60 hover:bg-slate-700 border border-slate-700 hover:border-sky-500/50 text-left transition-all">
+              <p class="text-[11px] font-bold text-sky-300 mb-1 flex items-center gap-2"><i data-lucide="layers" class="w-4 h-4"></i> Song Song</p>
+              <p class="text-[9px] text-slate-500">2 thanh & 1 chốt</p>
+            </button>
+            <button onclick="spawnAssemblyCombo('l-shape'); if(typeof saveHistoryStep==='function') saveHistoryStep('Tạo combo Chữ L');" class="p-3.5 rounded-2xl bg-slate-800/60 hover:bg-slate-700 border border-slate-700 hover:border-amber-500/50 text-left transition-all">
+              <p class="text-[11px] font-bold text-amber-400 mb-1 flex items-center gap-2"><i data-lucide="corner-down-right" class="w-4 h-4"></i> Khớp Chữ L</p>
+              <p class="text-[9px] text-slate-500">Góc 90 độ</p>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- TAB 2: TRÌNH GHÉP 2 THANH (GIỮ NGUYÊN CODE) -->
+      <div id="tab-pane-joinwizard" class="hidden space-y-5">
+        <div class="bg-gradient-to-br from-cyan-950/50 to-slate-900 p-5 rounded-3xl border border-cyan-500/30 shadow-[inset_0_0_20px_rgba(34,211,238,0.1)] space-y-4">
+          <div class="flex items-center justify-between border-b border-cyan-500/20 pb-3">
+            <span class="text-sm font-bold text-cyan-300 flex items-center gap-2">
+              <i data-lucide="git-merge" class="w-5 h-5 text-cyan-400"></i> Trình Ghép Nối Wizard
+            </span>
+          </div>
+          <p class="text-[11px] text-slate-400 leading-relaxed">Chọn 2 thanh cần ghép và chỉ định lỗ cắm chốt. Trục chốt đàn hồi sẽ tự động liên kết:</p>
+
+          <div class="bg-slate-950/50 p-4 rounded-2xl border border-slate-800 space-y-2 shadow-inner ring-1 ring-white/5">
+            <div class="flex items-center justify-between text-xs font-bold text-slate-200 mb-1">
+              <span class="flex items-center gap-2"><span class="w-2.5 h-2.5 rounded-full bg-cyan-400 shadow-[0_0_8px_cyan]"></span> Thanh 1 (Cơ sở)</span>
+              <span id="badge-join-part-a" class="text-[10px] text-cyan-400 font-mono font-normal bg-cyan-950/50 px-2 py-0.5 rounded">Chưa chọn</span>
+            </div>
+            <select id="select-join-part-a" onchange="onJoinPartAChange()" class="w-full bg-slate-800 border border-slate-600 rounded-xl p-2.5 text-xs text-slate-200 outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400 transition-all">
+              <option value="">-- Chọn Thanh 1 --</option>
+            </select>
+            <div class="flex items-center gap-3 pt-1.5">
+              <label class="text-[11px] font-bold text-slate-400 shrink-0">Vị trí Lỗ:</label>
+              <select id="select-join-hole-a" class="flex-1 bg-slate-800 border border-slate-600 rounded-xl p-2 text-xs font-bold text-cyan-300 font-mono outline-none focus:border-cyan-400 transition-all">
+                <option value="0">Lỗ số 1</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="bg-slate-950/50 p-4 rounded-2xl border border-slate-800 space-y-2 shadow-inner ring-1 ring-white/5">
+            <div class="flex items-center justify-between text-xs font-bold text-slate-200 mb-1">
+              <span class="flex items-center gap-2"><span class="w-2.5 h-2.5 rounded-full bg-amber-400 shadow-[0_0_8px_orange]"></span> Thanh 2 (Xoay)</span>
+              <span id="badge-join-part-b" class="text-[10px] text-amber-400 font-mono font-normal bg-amber-950/50 px-2 py-0.5 rounded">Chưa chọn</span>
+            </div>
+            <select id="select-join-part-b" onchange="onJoinPartBChange()" class="w-full bg-slate-800 border border-slate-600 rounded-xl p-2.5 text-xs text-slate-200 outline-none focus:border-amber-400 focus:ring-1 focus:ring-amber-400 transition-all">
+              <option value="">-- Chọn Thanh 2 --</option>
+            </select>
+            <div class="flex items-center gap-3 pt-1.5">
+              <label class="text-[11px] font-bold text-slate-400 shrink-0">Vị trí Lỗ:</label>
+              <select id="select-join-hole-b" class="flex-1 bg-slate-800 border border-slate-600 rounded-xl p-2 text-xs font-bold text-amber-400 font-mono outline-none focus:border-amber-400 transition-all">
+                <option value="0">Lỗ số 1</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="space-y-2 pt-2">
+            <div class="flex justify-between text-[11px] font-bold text-slate-400 mb-1">
+              <span>GÓC XOAY BAN ĐẦU:</span>
+              <span id="label-join-angle" class="font-mono text-cyan-400">45° (Góc chéo)</span>
+            </div>
+            <div class="grid grid-cols-4 gap-2">
+              <button onclick="setJoinInitialAngle(0, '0° (Song song)')" class="py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-600 text-[11px] font-bold text-slate-300 transition-all shadow-sm">0°</button>
+              <button onclick="setJoinInitialAngle(45, '45° (Góc chéo)')" class="py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-600 text-[11px] font-bold text-cyan-400 transition-all shadow-sm">45°</button>
+              <button onclick="setJoinInitialAngle(90, '90° (Vuông góc)')" class="py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-600 text-[11px] font-bold text-slate-300 transition-all shadow-sm">90°</button>
+              <button onclick="setJoinInitialAngle(180, '180° (Nối dài)')" class="py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-600 text-[11px] font-bold text-slate-300 transition-all shadow-sm">180°</button>
+            </div>
+          </div>
+
+          <button onclick="executeDirectJoin(); if(typeof saveHistoryStep==='function') saveHistoryStep('Ghép bằng Wizard');" class="w-full mt-4 py-3.5 px-4 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white font-bold text-sm tracking-wider shadow-[0_10px_20px_rgba(6,182,212,0.3)] transition-all flex items-center justify-center gap-2">
+            <i data-lucide="check-circle-2" class="w-5 h-5"></i> THỰC THI GHÉP NỐI
+          </button>
+        </div>
+      </div>
+
+     <!-- TAB 3: INSPECTOR (Đã xóa bỏ phần bắt dính nam châm rườm rà) -->
+      <div id="tab-pane-inspector" class="hidden space-y-5 mt-4">
+        <div id="inspector-no-selection" class="p-8 rounded-3xl bg-slate-800/30 border-2 border-slate-700/50 border-dashed text-center space-y-4">
+          <div class="w-16 h-16 rounded-2xl bg-slate-800/80 flex items-center justify-center mx-auto shadow-inner ring-1 ring-white/5">
+            <i data-lucide="box-select" class="w-8 h-8 text-slate-500"></i>
+          </div>
+          <p class="text-[12px] font-medium text-slate-400 leading-relaxed">Nhấp chuột trực tiếp vào bất kỳ mô hình nào trên màn hình 3D để xem và chỉnh sửa tọa độ.</p>
+        </div>
+
+        <div id="inspector-active-panel" class="hidden space-y-4">
+          <!-- Thông tin Header -->
+          <div class="bg-gradient-to-r from-slate-800 to-slate-900 p-5 rounded-2xl border border-slate-700 shadow-xl">
+            <div class="flex items-center justify-between mb-4">
+              <div>
+                <span id="inspect-part-title" class="font-black text-base text-cyan-400 tracking-wide">Dầm Kỹ Thuật</span>
+                <span id="inspect-part-id" class="inline-block mt-1 px-2 py-0.5 rounded bg-slate-950/50 text-[10px] font-mono text-slate-400 border border-slate-800">ID: part_1</span>
+              </div>
+              <button onclick="deleteSelectedPart(); if(typeof saveHistoryStep==='function') saveHistoryStep('Xóa chi tiết');" class="p-2.5 rounded-xl bg-rose-500/10 text-rose-400 hover:bg-rose-500/30 transition-colors border border-rose-500/20 shadow-sm" title="Xóa mô hình">
+                <i data-lucide="trash-2" class="w-5 h-5"></i>
+              </button>
+            </div>
+            
+            <div class="flex gap-2">
+              <button onclick="duplicateSelectedPart(); if(typeof saveHistoryStep==='function') saveHistoryStep('Nhân bản');" class="flex-1 py-2.5 rounded-xl bg-slate-700 hover:bg-slate-600 text-white text-xs font-bold transition-all flex items-center justify-center gap-2 shadow-md">
+                <i data-lucide="copy" class="w-4 h-4"></i> Nhân bản
+              </button>
+            </div>
+          </div>
+
+          <!-- Tọa Độ & Góc Xoay -->
+          <div class="bg-slate-800/50 p-5 rounded-2xl border border-slate-700/60 space-y-5 shadow-lg">
+            <span class="text-[11px] font-black text-slate-300 uppercase tracking-widest flex items-center gap-2"><i data-lucide="sliders-horizontal" class="w-4 h-4 text-slate-400"></i> Tọa Độ & Góc Xoay</span>
+            <div class="grid grid-cols-3 gap-3">
+              <div class="bg-slate-900/80 p-2 rounded-xl border border-slate-700/50">
+                <label class="text-[9px] text-slate-500 font-bold block mb-1.5 pl-1">TRỤC X</label>
+                <input type="number" id="inp-pos-x" step="0.5" class="w-full bg-transparent text-sm font-mono font-bold text-white outline-none pl-1">
+              </div>
+              <div class="bg-slate-900/80 p-2 rounded-xl border border-slate-700/50">
+                <label class="text-[9px] text-slate-500 font-bold block mb-1.5 pl-1">TRỤC Y</label>
+                <input type="number" id="inp-pos-y" step="0.5" class="w-full bg-transparent text-sm font-mono font-bold text-white outline-none pl-1">
+              </div>
+              <div class="bg-slate-900/80 p-2 rounded-xl border border-slate-700/50">
+                <label class="text-[9px] text-slate-500 font-bold block mb-1.5 pl-1">TRỤC Z</label>
+                <input type="number" id="inp-pos-z" step="0.5" class="w-full bg-transparent text-sm font-mono font-bold text-white outline-none pl-1">
+              </div>
+            </div>
+            <div class="pt-2 border-t border-slate-700/50">
+              <div class="flex justify-between text-[11px] font-bold text-slate-400 mb-3">
+                <span>XOAY QUANH TRỤC ĐỨNG (Y):</span>
+                <span id="val-part-rot" class="font-mono text-cyan-400 bg-slate-900 px-2 py-0.5 rounded border border-slate-700">0°</span>
+              </div>
+              <input type="range" id="inp-part-rot" min="-180" max="180" value="0" step="1" class="w-full">
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- TAB 4: JOINTS MANAGEMENT (GIỮ NGUYÊN CODE) -->
+      <div id="tab-pane-joints" class="hidden space-y-4">
+        <div id="joints-empty-msg" class="p-8 rounded-3xl bg-slate-800/30 border-2 border-slate-700/50 border-dashed text-center space-y-4">
+          <div class="w-16 h-16 rounded-2xl bg-slate-800/80 flex items-center justify-center mx-auto shadow-inner ring-1 ring-white/5">
+            <i data-lucide="link-2-off" class="w-8 h-8 text-slate-500"></i>
+          </div>
+          <p class="text-[12px] font-medium text-slate-400 leading-relaxed">Chưa có liên kết vật lý nào được tạo.<br>Hãy vào tab "Ghép 2" để bắt đầu.</p>
+        </div>
+        <div id="joints-list-container" class="space-y-3"></div>
+      </div>
+
+      <!-- VẬT LIỆU & BỀ MẶT CỐ ĐỊNH Ở DƯỚI (Cấu trúc gốc) -->
+      <div class="space-y-4 pt-5 border-t border-slate-700/60 mt-auto">
+        <h3 class="text-[11px] font-black text-amber-400 uppercase tracking-widest flex items-center gap-2">
+          <span class="w-5 h-5 rounded bg-amber-500/20 flex items-center justify-center"><i data-lucide="palette" class="w-3 h-3 text-amber-500"></i></span> Thuộc Tính Vật Liệu
+        </h3>
+
+        <div class="grid grid-cols-3 gap-2.5">
+          <button onclick="applyPreset('matte-plastic'); if(typeof saveHistoryStep==='function') saveHistoryStep('Đổi nhựa POM');" class="py-3 px-1 rounded-xl border border-slate-700/60 bg-slate-800/60 hover:bg-slate-700 hover:border-cyan-400 text-[11px] font-bold text-slate-200 flex flex-col items-center gap-2 transition-all shadow-md">
+            <div class="w-5 h-5 rounded-full bg-slate-900 border border-slate-500 shadow-inner"></div> Nhựa POM
+          </button>
+          <button onclick="applyPreset('brushed-steel'); if(typeof saveHistoryStep==='function') saveHistoryStep('Đổi vật liệu Thép');" class="py-3 px-1 rounded-xl border border-slate-700/60 bg-slate-800/60 hover:bg-slate-700 hover:border-cyan-400 text-[11px] font-bold text-slate-200 flex flex-col items-center gap-2 transition-all shadow-md">
+            <div class="w-5 h-5 rounded-full bg-gradient-to-tr from-slate-400 to-slate-500 shadow-inner"></div> Thép CNC
+          </button>
+          <button onclick="applyPreset('yellow-paint'); if(typeof saveHistoryStep==='function') saveHistoryStep('Đổi vật liệu Sơn');" class="py-3 px-1 rounded-xl border border-slate-700/60 bg-slate-800/60 hover:bg-slate-700 hover:border-amber-400 text-[11px] font-bold text-slate-200 flex flex-col items-center gap-2 transition-all shadow-md">
+            <div class="w-5 h-5 rounded-full bg-[#E8A716] shadow-inner"></div> Sơn CAT
+          </button>
+        </div>
+
+        <div class="flex items-center justify-between bg-slate-950/60 p-3 rounded-xl border border-slate-800/80 shadow-inner ring-1 ring-white/5">
+          <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider pl-1">Bảng màu:</span>
+          <div class="flex items-center gap-2">
+            <button onclick="setPartColor('#1e293b'); if(typeof saveHistoryStep==='function') saveHistoryStep('Đổi màu Đen');" class="w-5 h-5 rounded-full bg-[#1e293b] border-2 border-slate-600 hover:scale-125 hover:border-white transition-all shadow-lg"></button>
+            <button onclick="setPartColor('#94a3b8'); if(typeof saveHistoryStep==='function') saveHistoryStep('Đổi màu Xám');" class="w-5 h-5 rounded-full bg-[#94a3b8] border-2 border-slate-400 hover:scale-125 hover:border-white transition-all shadow-lg"></button>
+            <button onclick="setPartColor('#0284c7'); if(typeof saveHistoryStep==='function') saveHistoryStep('Đổi màu Xanh');" class="w-5 h-5 rounded-full bg-[#0284c7] border-2 border-sky-300 hover:scale-125 hover:border-white transition-all shadow-lg"></button>
+            <button onclick="setPartColor('#e8a716'); if(typeof saveHistoryStep==='function') saveHistoryStep('Đổi màu Vàng');" class="w-5 h-5 rounded-full bg-[#e8a716] border-2 border-amber-200 hover:scale-125 hover:border-white transition-all shadow-lg"></button>
+            <button onclick="setPartColor('#10b981'); if(typeof saveHistoryStep==='function') saveHistoryStep('Đổi màu Lục');" class="w-5 h-5 rounded-full bg-[#10b981] border-2 border-emerald-300 hover:scale-125 hover:border-white transition-all shadow-lg"></button>
+            <label class="w-5 h-5 rounded-full border-2 border-slate-500 border-dashed flex items-center justify-center cursor-pointer hover:border-cyan-400 hover:bg-slate-800 transition-colors relative overflow-hidden" title="Mã màu tùy chỉnh">
+              <input type="color" id="input-color-picker" value="#94a3b8" onchange="setPartColor(this.value); if(typeof saveHistoryStep==='function') saveHistoryStep('Đổi màu tùy chỉnh');" class="absolute -top-3 -left-3 w-12 h-12 cursor-pointer opacity-0">
+              <i data-lucide="plus" class="w-3 h-3 text-slate-400"></i>
+            </label>
+          </div>
+        </div>
+
+        <div class="space-y-2 pt-1">
+          <label class="flex items-center justify-between text-[11px] font-bold text-slate-300 bg-slate-800/40 p-3 rounded-xl border border-slate-700/40 cursor-pointer hover:bg-slate-800/80 transition-colors shadow-sm">
+            Hiện khung lưới (Wireframe)
+            <input type="checkbox" id="check-wireframe" class="w-4 h-4 rounded bg-slate-900 border-slate-600 text-cyan-500 focus:ring-0 focus:ring-offset-0">
+          </label>
+          <label class="flex items-center justify-between text-[11px] font-bold text-slate-300 bg-slate-800/40 p-3 rounded-xl border border-slate-700/40 cursor-pointer hover:bg-slate-800/80 transition-colors shadow-sm">
+            Hiện trục tọa độ (XYZ)
+            <input type="checkbox" id="check-axes" class="w-4 h-4 rounded bg-slate-900 border-slate-600 text-cyan-500 focus:ring-0 focus:ring-offset-0">
+          </label>
+        </div>
+      </div>
+
+    </div>
+  </aside>
+
+  <!-- Load scripts theo thứ tự -->
+  <script src="js/state.js"></script>
+  <script src="js/utils.js"></script>
+  <script src="js/geometry.js"></script>
+  <script src="js/spawnManager.js"></script> <!-- FILE KIỂM SOÁT TỌA ĐỘ MỚI -->
+  <script src="js/partsManager.js"></script>
+  <script src="js/transformTools.js"></script>
+  <script src="js/interactionManager.js"></script>
+  <script src="js/physicsManager.js"></script> 
+  <script src="js/jointsManager.js"></script>
+  <script src="js/ui.js"></script>
+  <script src="js/historyManager.js"></script>
+  <script src="js/scene.js"></script>
+  <script src="js/exporter.js"></script>
+  <script src="js/main.js"></script>
+  <script src="js/gizmoManager.js"></script>
+</body>
+</html>
