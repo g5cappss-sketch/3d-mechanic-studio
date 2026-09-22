@@ -190,6 +190,8 @@ function openJoinWizardForSelected() {
 
 // Bắt sự kiện form Inspector (Tọa độ X Y Z)
 function setupEventListeners() {
+  setupModelImport();
+
   ['x', 'y', 'z'].forEach(axis => {
     const inp = document.getElementById(`inp-pos-${axis}`);
     if (inp) {

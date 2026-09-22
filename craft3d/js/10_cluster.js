@@ -29,6 +29,16 @@ function getConnectedPartIds(startPartId) {
         queue.push(j.partAId);
       }
     });
+    socketConnections.forEach(connection => {
+      if (connection.partAId === currentId && !visited.has(connection.partBId)) {
+        visited.add(connection.partBId);
+        queue.push(connection.partBId);
+      }
+      if (connection.partBId === currentId && !visited.has(connection.partAId)) {
+        visited.add(connection.partAId);
+        queue.push(connection.partAId);
+      }
+    });
   }
   return Array.from(visited);
 }

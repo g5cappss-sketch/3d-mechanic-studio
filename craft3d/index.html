@@ -10,6 +10,8 @@
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
   <!-- Three.js GLTFExporter for .GLB file export -->
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/exporters/GLTFExporter.js"></script>
+  <!-- Three.js GLTFLoader for .GLB/.GLTF file import -->
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
   <!-- Lucide Icons -->
   <script src="https://unpkg.com/lucide@latest"></script>
   <!-- Custom Stylesheet -->
@@ -123,6 +125,21 @@
 
       <!-- TAB 1: LIBRARY & SPAWNER -->
       <div id="tab-pane-library" class="space-y-4">
+        <div class="space-y-2">
+          <label class="text-[11px] font-semibold text-slate-400 uppercase tracking-wider block">0. Nhập mô hình 3D</label>
+          <input id="model-file-input" type="file" accept=".glb,.gltf,model/gltf-binary,model/gltf+json" class="hidden">
+          <input id="model-metadata-input" type="file" accept=".json,application/json" class="hidden">
+          <button onclick="document.getElementById('model-file-input').click()" class="w-full p-2.5 rounded-xl border border-cyan-500/50 bg-cyan-950/30 hover:border-cyan-400 hover:bg-cyan-900/40 transition-all text-left flex items-center gap-2">
+            <i data-lucide="folder-open" class="w-4 h-4 text-cyan-400"></i>
+            <span class="text-xs font-semibold text-cyan-300">Nhập file .GLB / .GLTF</span>
+          </button>
+          <button onclick="document.getElementById('model-metadata-input').click()" class="w-full p-2.5 rounded-xl border border-slate-700 bg-slate-800/60 hover:border-cyan-400 hover:bg-slate-800 transition-all text-left flex items-center gap-2">
+            <i data-lucide="map-pin" class="w-4 h-4 text-slate-400"></i>
+            <span class="text-xs font-semibold text-slate-300">Nạp metadata socket (.JSON)</span>
+          </button>
+          <p class="text-[10px] text-slate-500">Tự nhận node socket_* / hole_* / pin_* hoặc nạp JSON để định nghĩa chính xác.</p>
+        </div>
+
         <div class="space-y-2">
           <label class="text-[11px] font-semibold text-slate-400 uppercase tracking-wider block">1. Thêm Thanh & Dầm Kỹ Thuật</label>
           <div class="grid grid-cols-2 gap-2">
@@ -440,17 +457,20 @@
   </aside>
 
   <!-- Application Logic -->
-  <script src="js/1_state.js"></script>
+  <script src="js/core/1_state.js"></script>
   <script src="js/2_geometry.js"></script>
   <script src="js/3_ui.js"></script>
-  <script src="js/4_assembly.js"></script>
-  <script src="js/5_interaction.js"></script>
-  <script src="js/6_main.js"></script>
+  <script src="js/assembly/PartObject.js"></script>
+  <script src="js/assembly/ConnectionManager.js"></script>
+  <script src="js/assembly/4_assembly.js"></script>
+  <script src="js/core/5_interaction.js"></script>
+  <script src="js/core/6_main.js"></script>
   <script src="js/7_physics.js"></script>
   <script src="js/8_collision.js"></script>
-  <script src="js/9_transform.js"></script>
+  <script src="js/core/9_transform.js"></script>
   <script src="js/10_cluster.js"></script>
   <script src="js/11_selection.js"></script>
   <script src="js/12_inventory.js"></script>
+  <script src="js/13_import.js"></script>
 </body>
 </html>

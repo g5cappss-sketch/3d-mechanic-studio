@@ -84,7 +84,33 @@ window.onCanvasPointerDown = function(event) {
   const intersects = raycaster.intersectObjects(selectableRoots, true);
 
   if (pendingSnapSource) {
-    const anchorHit = intersects.find(hit => hit.object.userData && hit.object.userData.isHoleAnchor);
+    const socketHit = intersects.find(hit => hit.object.userData && (hit.object.userData.isSocket || hit.object.userData.isHoleAnchor));
+    if (pendingSnapSource.socketId && socketHit) {
+      const targetPartId = getSelectionPartId(socketHit.object);
+      const targetSocketId = socketHit.object.userData.socketId;
+      if (targetPartId && targetSocketId && targetPartId !== pendingSnapSource.partId) {
+        const sourcePart = parts.find(part => part.id === pendingSnapSource.partId);
+        const targetPart = parts.find(part => part.id === targetPartId);
+        const sourceSocket = getPartSockets(sourcePart).find(socket => socket.id === pendingSnapSource.socketId);
+        const targetSocket = getPartSockets(targetPart).find(socket => socket.id === targetSocketId);
+        if (sourceSocket && targetSocket && sourceSocket.type !== targetSocket.type) {
+          connectionManager.snapCandidate({
+            source: { part: sourcePart, socket: sourceSocket, world: getSocketWorldData(sourcePart, sourceSocket) },
+            target: { part: targetPart, socket: targetSocket, world: getSocketWorldData(targetPart, targetSocket) }
+          }, activeClusterGroup);
+          connectionManager.connectCandidate({
+            source: { part: sourcePart, socket: sourceSocket },
+            target: { part: targetPart, socket: targetSocket }
+          });
+          if (typeof packCluster === 'function') packCluster(sourcePart.id);
+          showTemporaryNotice(`Đã hít socket: ${sourceSocket.id} ↔ ${targetSocket.id}`);
+          cancelSnapMode();
+        }
+      }
+      return;
+    }
+
+    const anchorHit = socketHit;
     const fallbackHole = getHoleFromPointer(event, pendingSnapSource.partId);
     const targetPartId = anchorHit
       ? getSelectionPartId(anchorHit.object)
@@ -148,6 +174,25 @@ window.selectPart = function(id) {
   }
 
   update3DHoleBadges(part);
+
+  const socketsContainer = document.getElementById('inspector-holes-list');
+  if (socketsContainer) {
+    socketsContainer.innerHTML = '';
+    const sockets = typeof getPartSockets === 'function' ? getPartSockets(part) : [];
+    if (sockets.length > 0) {
+      sockets.forEach((socket, index) => {
+        const button = document.createElement('button');
+        const label = socket.type === 'male' ? 'Chốt' : 'Lỗ';
+        button.className = 'px-2.5 py-1.5 bg-slate-800 hover:bg-cyan-500 hover:text-slate-950 text-slate-300 font-mono text-[10px] font-semibold rounded-lg border border-slate-700 transition-all flex items-center gap-1.5';
+        button.innerHTML = `<i data-lucide="crosshair" class="w-3 h-3"></i> ${label} ${index + 1}`;
+        button.onclick = () => startSocketSnapping(part.id, socket.id);
+        socketsContainer.appendChild(button);
+      });
+      lucide.createIcons();
+    } else {
+      socketsContainer.innerHTML = '<span class="text-[10px] text-slate-500">Chi tiết này chưa có socket kết nối.</span>';
+    }
+  }
 
   document.getElementById('inspector-no-selection').classList.add('hidden');
   document.getElementById('inspector-active-panel').classList.remove('hidden');
@@ -222,3 +267,22 @@ window.pulseGlowEffect = function() {
     });
   }
 };
+
+function startSocketSnapping(partId, socketId) {
+  const part = parts.find(item => item.id === partId);
+  const socket = part && getPartSockets(part).find(item => item.id === socketId);
+  if (!part || !socket) return;
+
+  pendingSnapSource = { partId, socketId };
+  const banner = document.getElementById('snap-guide-banner');
+  const text = document.getElementById('snap-guide-text');
+  text.innerText = `Đã chọn socket ${socket.id} của ${part.name}. Chọn socket đối ứng trên chi tiết khác.`;
+  banner.classList.remove('hidden');
+
+  parts.forEach(otherPart => {
+    if (otherPart.id === partId) return;
+    getPartSockets(otherPart).forEach(otherSocket => {
+      if (otherSocket.object3D && otherSocket.object3D.material) otherSocket.object3D.material.opacity = 0.85;
+    });
+  });
+}
