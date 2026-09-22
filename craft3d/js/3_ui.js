@@ -200,6 +200,7 @@ function setupEventListeners() {
         if (part && part.root) {
           part.root.position[axis] = parseFloat(e.target.value) || 0;
           highlightBox.setFromObject(part.root);
+          if (e.type === 'change' && typeof recordAssemblyHistory === 'function') recordAssemblyHistory(`Đổi tọa độ trục ${axis.toUpperCase()}`);
         }
       });
     }
@@ -214,6 +215,7 @@ function setupEventListeners() {
       if (part && part.root) {
         part.root.rotation.y = (deg * Math.PI) / 180;
         highlightBox.setFromObject(part.root);
+        if (e.type === 'change' && typeof recordAssemblyHistory === 'function') recordAssemblyHistory('Đổi góc xoay');
       }
     });
   }

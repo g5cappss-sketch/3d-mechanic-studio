@@ -31,6 +31,10 @@ function initTransformControls() {
       }
       showTemporaryNotice(`Đã hít socket: ${lastSnapCandidate.source.socket.id} ↔ ${lastSnapCandidate.target.socket.id}`);
     }
+
+    if (!event.value && typeof recordAssemblyHistory === 'function') {
+      recordAssemblyHistory(currentToolMode === 'rotate' ? 'Xoay cụm lắp ghép' : 'Di chuyển cụm lắp ghép');
+    }
   });
 
   transformControl.addEventListener('change', function () {

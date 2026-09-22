@@ -24,6 +24,7 @@ function registerPart(name, type, object3D, holes, colorHex, height) {
   updatePartsCountBadge();
   selectPart(id);
   refreshJoinDropdowns();
+  if (typeof recordAssemblyHistory === 'function') recordAssemblyHistory(`Thêm ${partObj.name}`);
   return partObj;
 }
 
@@ -148,6 +149,7 @@ function createJointBetweenHoles(partAId, holeAIdx, partBId, holeBIdx, initialAn
 
   updateJointsUI();
   cancelSnapMode();
+  if (typeof recordAssemblyHistory === 'function') recordAssemblyHistory('Tạo khớp nối');
 }
 
 function executeDirectJoin() {
@@ -264,6 +266,7 @@ function removeJoint(jointId) {
     // Xóa data khớp nối khỏi mảng
     joints.splice(idx, 1);
     updateJointsUI();
+    if (typeof recordAssemblyHistory === 'function') recordAssemblyHistory('Tháo khớp nối');
 
     // Rã cụm hiện tại để làm mới lại ma trận không gian, tránh lỗi lệch Gizmo
     if (typeof unpackCluster === 'function') {
@@ -279,25 +282,50 @@ function removeJoint(jointId) {
 // XÓA VÀ QUẢN LÝ
 // ==========================================
 
-function deleteSelectedPart() {
-  if (!selectedPartId) return;
-  const connectedJoints = joints.filter(j => j.partAId === selectedPartId || j.partBId === selectedPartId);
+function deletePartById(partId) {
+  if (!partId) return false;
+
+  if (typeof currentClusterPartIds !== 'undefined' && currentClusterPartIds.includes(partId)) {
+    if (typeof detachGizmo === 'function') detachGizmo();
+    if (typeof unpackCluster === 'function') unpackCluster();
+  }
+
+  const connectedJoints = joints.filter(j => j.partAId === partId || j.partBId === partId);
   connectedJoints.forEach(j => removeJoint(j.id));
 
-  const idx = parts.findIndex(p => p.id === selectedPartId);
-  if (idx !== -1) {
+  const idx = parts.findIndex(p => p.id === partId);
+  if (idx === -1) return false;
+
+  if (parts[idx].root) {
     partsGroup.remove(parts[idx].root);
-    parts.splice(idx, 1);
-    socketConnections = socketConnections.filter(connection => connection.partAId !== selectedPartId && connection.partBId !== selectedPartId);
   }
+  parts.splice(idx, 1);
+  socketConnections = socketConnections.filter(connection => connection.partAId !== partId && connection.partBId !== partId);
+
+  if (selectedPartId !== partId) {
+    updatePartsCountBadge();
+    refreshJoinDropdowns();
+    if (typeof recordAssemblyHistory === 'function') recordAssemblyHistory('Xóa linh kiện');
+    return true;
+  }
+
   highlightBox.visible = false;
+  if (typeof removeGlowEffect === 'function') removeGlowEffect();
   document.getElementById('floating-part-hud').classList.add('hidden');
   while (holeBadgesGroup.children.length > 0) holeBadgesGroup.remove(holeBadgesGroup.children[0]);
   selectedPartId = null;
   document.getElementById('inspector-no-selection').classList.remove('hidden');
   document.getElementById('inspector-active-panel').classList.add('hidden');
+  const appearanceControls = document.getElementById('appearance-controls');
+  if (appearanceControls) appearanceControls.classList.add('hidden');
   updatePartsCountBadge();
   refreshJoinDropdowns();
+  if (typeof recordAssemblyHistory === 'function') recordAssemblyHistory('Xóa linh kiện');
+  return true;
+}
+
+function deleteSelectedPart() {
+  return deletePartById(selectedPartId);
 }
 
 function clearAllParts() {
@@ -315,45 +343,42 @@ function clearAllParts() {
   updatePartsCountBadge();
   document.getElementById('inspector-no-selection').classList.remove('hidden');
   document.getElementById('inspector-active-panel').classList.add('hidden');
+  const appearanceControls = document.getElementById('appearance-controls');
+  if (appearanceControls) appearanceControls.classList.add('hidden');
   refreshJoinDropdowns();
+  if (typeof recordAssemblyHistory === 'function') recordAssemblyHistory('Xóa toàn bộ linh kiện');
 }
 
 function duplicateSelectedPart() {
   const part = parts.find(p => p.id === selectedPartId);
   if (!part) return;
+  if (part.customSourceId && typeof spawnCustomPart === 'function') {
+    spawnCustomPart(part.customSourceId);
+    return;
+  }
   spawnZMROBOBeam(part.holes.length, part.colorHex, part.name.split(' #')[0]);
-}
-
-// Đổi vật liệu
-function applyPreset(presetKey) {
-  const part = parts.find(p => p.id === selectedPartId);
-  const targetParts = part ? [part] : parts;
-
-  targetParts.forEach(p => {
-    if (!p.root) return;
-    p.root.traverse(node => {
-      if (node.isMesh && node.material && !node.userData.isHoleAnchor) {
-        if (presetKey === 'matte-plastic') {
-          node.material.metalness = 0.0; node.material.roughness = 0.8; node.material.needsUpdate = true;
-        } else if (presetKey === 'flat-2d') {
-          node.material.metalness = 0.0; node.material.roughness = 1.0; node.material.needsUpdate = true;
-        } else if (presetKey === 'smooth-plastic') {
-          node.material.metalness = 0.0; node.material.roughness = 0.35; node.material.needsUpdate = true;
-        }
-      }
-    });
-  });
 }
 
 function setPartColor(colorHex) {
   const part = parts.find(p => p.id === selectedPartId);
-  if (part && part.root) {
-    part.colorHex = colorHex;
-    part.root.traverse(node => {
-      if (node.isMesh && node.material && !node.userData.isHoleAnchor) {
-        node.material.color.set(colorHex);
-        node.material.metalness = 0.0;
-      }
+  if (!part) return;
+  const color = new THREE.Color(colorHex);
+  part.colorHex = color.getHex();
+  if (!part.root) return;
+
+  part.root.traverse(node => {
+    if (!node.isMesh || node.userData.isHoleAnchor) return;
+    const materials = Array.isArray(node.material) ? node.material : [node.material];
+    const originalMaterials = node.userData.glowOriginalMaterial
+      ? (Array.isArray(node.userData.glowOriginalMaterial)
+        ? node.userData.glowOriginalMaterial
+        : [node.userData.glowOriginalMaterial])
+      : [];
+    [...materials, ...originalMaterials].forEach(material => {
+      if (!material || !material.color) return;
+      material.color.copy(color);
+      material.needsUpdate = true;
     });
-  }
+  });
+  if (typeof recordAssemblyHistory === 'function') recordAssemblyHistory(`Đổi màu ${part.name}`);
 }

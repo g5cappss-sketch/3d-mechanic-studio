@@ -149,6 +149,14 @@ window.selectPart = function(id) {
   const part = parts.find(p => p.id === id);
   if (!part) return;
 
+  const transformToolbar = document.getElementById('transform-toolbar');
+  if (transformToolbar) {
+    transformToolbar.classList.remove('hidden');
+    transformToolbar.classList.add('flex');
+  }
+
+  if (typeof setSidebarTab === 'function') setSidebarTab('inspector');
+
   // Gói cụm & Kích hoạt Gizmo
   if (typeof packCluster === 'function') packCluster(id);
   
@@ -196,6 +204,8 @@ window.selectPart = function(id) {
 
   document.getElementById('inspector-no-selection').classList.add('hidden');
   document.getElementById('inspector-active-panel').classList.remove('hidden');
+  const appearanceControls = document.getElementById('appearance-controls');
+  if (appearanceControls) appearanceControls.classList.remove('hidden');
   document.getElementById('inspect-part-title').innerText = part.name;
   
   if (typeof refreshJoinDropdowns === 'function') refreshJoinDropdowns(part.id);
@@ -204,6 +214,12 @@ window.selectPart = function(id) {
 // 3. HÀM XÓA CHỌN (KHI CLICK RA NGOÀI)
 function clearSelection() {
   selectedPartId = null;
+  const transformToolbar = document.getElementById('transform-toolbar');
+  if (transformToolbar) {
+    transformToolbar.classList.add('hidden');
+    transformToolbar.classList.remove('flex');
+  }
+  if (typeof setSidebarTab === 'function') setSidebarTab('library');
   if (typeof unpackCluster === 'function') unpackCluster();
   if (typeof detachGizmo === 'function') detachGizmo();
   
@@ -214,6 +230,8 @@ function clearSelection() {
   while (holeBadgesGroup.children.length > 0) holeBadgesGroup.remove(holeBadgesGroup.children[0]);
   document.getElementById('inspector-no-selection').classList.remove('hidden');
   document.getElementById('inspector-active-panel').classList.add('hidden');
+  const appearanceControls = document.getElementById('appearance-controls');
+  if (appearanceControls) appearanceControls.classList.add('hidden');
 }
 
 // ==========================================
@@ -228,13 +246,20 @@ function applyGlowEffect(partIds) {
     if (p && p.root) {
       p.root.traverse(node => {
         // Tìm các bề mặt (mesh) và bỏ qua các chốt tàng hình (holeAnchor)
-        if (node.isMesh && node.material && node.material.emissive && !node.userData.isHoleAnchor) {
+        if (node.isMesh && node.material && !node.userData.isHoleAnchor) {
           // Mỗi mesh chỉ lưu material gốc một lần để chọn lại không làm đổi trạng thái vật thể.
-          const glowMaterial = node.material.clone();
-          glowMaterial.emissive.setHex(0x0284c7);
-          glowMaterial.emissiveIntensity = 0.1;
+          const originalMaterial = node.material;
+          const originalMaterials = Array.isArray(originalMaterial) ? originalMaterial : [originalMaterial];
+          const glowMaterials = originalMaterials.map(material => {
+            const glowMaterial = material && material.clone ? material.clone() : material;
+            if (glowMaterial && glowMaterial.emissive) {
+              glowMaterial.emissive.setHex(0x0284c7);
+              glowMaterial.emissiveIntensity = 0.1;
+            }
+            return glowMaterial;
+          });
           node.userData.glowOriginalMaterial = node.material;
-          node.material = glowMaterial;
+          node.material = Array.isArray(originalMaterial) ? glowMaterials : glowMaterials[0];
           currentlyHighlightedMeshes.push(node);
         }
       });
@@ -245,7 +270,10 @@ function applyGlowEffect(partIds) {
 function removeGlowEffect() {
   currentlyHighlightedMeshes.forEach(node => {
     if (node.userData.glowOriginalMaterial) {
-      node.material.dispose();
+      const glowMaterials = Array.isArray(node.material) ? node.material : [node.material];
+      glowMaterials.forEach(material => {
+        if (material && material.dispose) material.dispose();
+      });
       node.material = node.userData.glowOriginalMaterial;
       delete node.userData.glowOriginalMaterial;
     }
@@ -262,7 +290,10 @@ window.pulseGlowEffect = function() {
     
     currentlyHighlightedMeshes.forEach(node => {
       if (node.material) {
-        node.material.emissiveIntensity = intensity;
+        const materials = Array.isArray(node.material) ? node.material : [node.material];
+        materials.forEach(material => {
+          if (material && material.emissive) material.emissiveIntensity = intensity;
+        });
       }
     });
   }

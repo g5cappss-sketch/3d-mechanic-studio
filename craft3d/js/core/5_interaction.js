@@ -37,6 +37,10 @@ function onCanvasPointerDown(event) {
     }
   } else {
     // Click khoảng không thì rã cụm và bỏ chọn.
+    if (typeof clearSelection === 'function') {
+      clearSelection();
+      return;
+    }
     selectedPartId = null;
     if (typeof unpackCluster === 'function') unpackCluster();
     if (typeof detachGizmo === 'function') detachGizmo();
@@ -86,9 +90,9 @@ function selectPart(id) {
   document.getElementById('inspect-part-title').innerText = part.name;
   document.getElementById('inspect-part-id').innerText = `Loại: ${part.type} • ID: ${part.id}`;
 
-  const holesContainer = document.getElementById('inspector-holes-list');
-  holesContainer.innerHTML = '';
-  if (part.holes && part.holes.length > 0) {
+    const holesContainer = document.getElementById('inspector-holes-list');
+    if (holesContainer) holesContainer.innerHTML = '';
+  if (holesContainer && part.holes && part.holes.length > 0) {
     part.holes.forEach(h => {
       const btn = document.createElement('button');
       btn.className = 'px-2.5 py-1.5 bg-slate-800 hover:bg-cyan-500 hover:text-slate-950 text-slate-300 font-mono text-[10px] font-semibold rounded-lg border border-slate-700 transition-all flex items-center gap-1.5';
@@ -97,7 +101,7 @@ function selectPart(id) {
       holesContainer.appendChild(btn);
     });
     lucide.createIcons();
-  } else {
+  } else if (holesContainer) {
     holesContainer.innerHTML = '<span class="text-[10px] text-slate-500">Chi tiết này không có lỗ dập để ghép chốt.</span>';
   }
 

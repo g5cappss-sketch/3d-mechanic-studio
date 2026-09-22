@@ -1,12 +1,16 @@
 // ==========================================
 // FILE: 13_import.js
-// CHỨC NĂNG: Nhập mô hình GLB/GLTF từ máy người dùng.
+// CHỨC NĂNG: Nhập mô hình GLB/GLTF và quản lý kho model tùy chỉnh.
 // ==========================================
+
+const customPartsDatabase = [];
 
 function setupModelImport() {
   const input = document.getElementById('model-file-input');
   const metadataInput = document.getElementById('model-metadata-input');
   if (!input) return;
+  if (input.dataset.importReady === 'true') return;
+  input.dataset.importReady = 'true';
 
   input.addEventListener('change', event => {
     const file = event.target.files && event.target.files[0];
@@ -21,6 +25,8 @@ function setupModelImport() {
       metadataInput.value = '';
     });
   }
+
+  restoreCustomInventory();
 }
 
 function importModelFile(file) {
@@ -45,7 +51,11 @@ function importModelFile(file) {
     loader.parse(
       data,
       '',
-      gltf => registerImportedModel(gltf.scene, file.name, gltf.scene.userData),
+      gltf => registerImportedModel(gltf.scene, file.name, gltf.scene.userData, {
+        sourceData: data,
+        sourceType: extension,
+        persist: true
+      }),
       error => {
         console.error('Không thể đọc mô hình GLB/GLTF:', error);
         showTemporaryNotice('Không thể đọc file. Với GLTF, hãy dùng bản có texture nhúng hoặc chuyển sang GLB.');
@@ -75,8 +85,25 @@ function importSocketMetadataFile(file) {
         showTemporaryNotice('Hãy nhập và chọn model 3D trước khi nạp metadata socket.');
         return;
       }
-      applySocketMetadata(part, metadata);
-      showTemporaryNotice(`Đã nạp ${part.sockets.length} socket cho ${part.name}.`);
+      const definitions = metadata.sockets || metadata.connections;
+      if (!Array.isArray(definitions)) {
+        showTemporaryNotice('JSON phải có mảng sockets hoặc connections.');
+        return;
+      }
+
+      const customPart = part.customSourceId
+        ? customPartsDatabase.find(item => item.id === part.customSourceId)
+        : null;
+      const targetParts = customPart
+        ? parts.filter(item => item.customSourceId === customPart.id)
+        : [part];
+      targetParts.forEach(item => applySocketMetadata(item, metadata));
+
+      if (customPart) {
+        customPart.metadata = metadata;
+        persistCustomPartMetadata(customPart);
+      }
+      showTemporaryNotice(`Đã nạp ${definitions.length} socket cho ${customPart ? customPart.name : part.name}.`);
     } catch (error) {
       console.error('Metadata socket không hợp lệ:', error);
       showTemporaryNotice('Không thể đọc metadata socket JSON.');
@@ -85,7 +112,7 @@ function importSocketMetadataFile(file) {
   reader.readAsText(file);
 }
 
-function registerImportedModel(model, filename, embeddedMetadata = {}) {
+function registerImportedModel(model, filename, embeddedMetadata = {}, options = {}) {
   if (!model) {
     showTemporaryNotice('File không chứa scene 3D hợp lệ.');
     return;
@@ -99,7 +126,7 @@ function registerImportedModel(model, filename, embeddedMetadata = {}) {
     }
   });
 
-  // Đưa model về kích thước và vị trí dễ quan sát trong sàn làm việc.
+  // Chuẩn hóa template một lần để mọi instance có cùng hitbox và tâm xoay.
   const bounds = new THREE.Box3().setFromObject(model);
   const size = new THREE.Vector3();
   const center = new THREE.Vector3();
@@ -119,28 +146,201 @@ function registerImportedModel(model, filename, embeddedMetadata = {}) {
   normalizedBounds.getCenter(normalizedCenter);
   normalizedBounds.getSize(normalizedSize);
 
-  model.position.sub(normalizedCenter);
-  model.position.y += normalizedSize.y / 2;
-  findSafeSpawnPosition(model);
-
-  const part = registerPart(
-    model.name,
-    'imported-model',
-    model,
-    [],
-    null,
-    Math.max(normalizedSize.y, 0.1)
-  );
-
   const metadata = embeddedMetadata && (embeddedMetadata.sockets || embeddedMetadata.connections)
     ? embeddedMetadata
     : { sockets: discoverSocketNodes(model) };
-  applySocketMetadata(part, metadata);
+  model.position.sub(normalizedCenter);
+  model.position.y += normalizedSize.y / 2;
+  const customPart = {
+    id: options.id || `custom_${Date.now()}_${customPartsDatabase.length}`,
+    name: model.name,
+    model,
+    metadata,
+    height: Math.max(normalizedSize.y, 0.1),
+    thumbnail: createModelThumbnail(model),
+    sourceData: options.sourceData,
+    sourceType: options.sourceType,
+    metadata
+  };
+  customPartsDatabase.push(customPart);
+  renderCustomInventory();
+  if (options.persist && options.sourceData && typeof saveCustomInventoryModel === 'function') {
+    saveCustomInventoryModel({
+      id: customPart.id,
+      name: filename,
+      sourceData: options.sourceData,
+      sourceType: options.sourceType,
+      metadata
+    }).catch(error => console.error('Không thể lưu model vào kho:', error));
+  }
+  showTemporaryNotice(`Đã thêm [${model.name}] vào Kho Của Tôi.`);
+}
 
-  const socketCount = part.sockets.length;
-  showTemporaryNotice(socketCount > 0
-    ? `Đã nhập mô hình: ${part.name} (${socketCount} socket).`
-    : `Đã nhập mô hình: ${part.name}. Chưa có metadata socket.`);
+function restoreCustomInventory() {
+  if (typeof loadCustomInventoryModels !== 'function') return;
+
+  loadCustomInventoryModels().then(records => {
+    records.forEach(record => {
+      const loader = new THREE.GLTFLoader();
+      loader.parse(
+        record.sourceData,
+        '',
+        gltf => registerImportedModel(gltf.scene, record.name, record.metadata || gltf.scene.userData, {
+          id: record.id,
+          persist: false,
+          sourceData: record.sourceData,
+          sourceType: record.sourceType
+        }),
+        error => console.error(`Không thể khôi phục model ${record.name}:`, error)
+      );
+    });
+  }).catch(error => console.error('Không thể đọc kho model đã lưu:', error));
+}
+
+function persistCustomPartMetadata(customPart) {
+  if (!customPart.sourceData || typeof saveCustomInventoryModel !== 'function') return;
+  saveCustomInventoryModel({
+    id: customPart.id,
+    name: customPart.name,
+    sourceData: customPart.sourceData,
+    sourceType: customPart.sourceType,
+    metadata: customPart.metadata
+  }).catch(error => console.error('Không thể lưu metadata socket:', error));
+}
+
+function renderCustomInventory() {
+  const container = document.getElementById('custom-inventory-list');
+  const count = document.getElementById('custom-inventory-count');
+  if (!container) return;
+
+  container.innerHTML = '';
+  if (count) count.textContent = `${customPartsDatabase.length} model`;
+  if (customPartsDatabase.length === 0) {
+    const message = document.createElement('div');
+    message.id = 'empty-inventory-msg';
+    message.className = 'col-span-2 text-center text-[10px] text-slate-500 py-3 bg-slate-800/30 rounded-xl border border-dashed border-slate-700';
+    message.textContent = 'Kho trống. Hãy nhập file .GLB hoặc .GLTF';
+    container.appendChild(message);
+    return;
+  }
+
+  customPartsDatabase.forEach(part => {
+    const card = document.createElement('div');
+    card.className = 'custom-inventory-card w-full min-w-0 bg-slate-800 hover:bg-slate-700 p-1.5 rounded-xl border border-slate-700 transition-all';
+    const previewButton = document.createElement('button');
+    previewButton.type = 'button';
+    previewButton.className = 'block w-full text-left';
+    previewButton.title = `Thả ${part.name} ra sàn`;
+    const preview = document.createElement('div');
+    preview.className = 'custom-inventory-preview';
+    if (part.thumbnail) {
+      const image = document.createElement('img');
+      image.src = part.thumbnail;
+      image.alt = `Ảnh xem trước ${part.name}`;
+      preview.appendChild(image);
+    } else {
+      preview.textContent = '3D';
+    }
+    const title = document.createElement('span');
+    title.className = 'block text-[10px] font-bold text-slate-200 truncate px-0.5 mt-1';
+    title.title = part.name;
+    title.textContent = part.name;
+    const subtitle = document.createElement('span');
+    subtitle.className = 'block text-[9px] text-cyan-400 mt-0.5 px-0.5';
+    subtitle.textContent = 'Thả ra sàn';
+    previewButton.append(preview, title, subtitle);
+    previewButton.addEventListener('click', () => spawnCustomPart(part.id));
+    const actions = document.createElement('div');
+    actions.className = 'flex items-center gap-1 mt-1';
+    const deleteButton = document.createElement('button');
+    deleteButton.type = 'button';
+    deleteButton.className = 'flex-1 text-[9px] text-rose-300 hover:text-white hover:bg-rose-500/30 rounded py-1 transition-colors';
+    deleteButton.textContent = 'Xóa khỏi kho';
+    deleteButton.title = `Xóa ${part.name} khỏi kho`;
+    deleteButton.addEventListener('click', event => {
+      event.stopPropagation();
+      deleteCustomPart(part.id);
+    });
+    actions.appendChild(deleteButton);
+    card.append(previewButton, actions);
+    container.appendChild(card);
+  });
+}
+
+function deleteCustomPart(customPartId) {
+  const partIndex = customPartsDatabase.findIndex(part => part.id === customPartId);
+  if (partIndex === -1) return;
+
+  const part = customPartsDatabase[partIndex];
+  const instances = parts.filter(item => item.customSourceId === customPartId);
+  instances.forEach(instance => {
+    if (typeof deletePartById === 'function') deletePartById(instance.id);
+  });
+  customPartsDatabase.splice(partIndex, 1);
+  renderCustomInventory();
+  if (typeof deleteCustomInventoryModel === 'function') {
+    deleteCustomInventoryModel(customPartId).catch(error => console.error('Không thể xóa model khỏi kho:', error));
+  }
+  showTemporaryNotice(`Đã xóa [${part.name}] khỏi Kho Của Tôi.`);
+}
+
+function createModelThumbnail(model) {
+  if (typeof THREE.WebGLRenderer === 'undefined') return '';
+
+  let previewRenderer;
+  try {
+    const canvas = document.createElement('canvas');
+    previewRenderer = new THREE.WebGLRenderer({
+      canvas,
+      antialias: true,
+      preserveDrawingBuffer: true
+    });
+    previewRenderer.setPixelRatio(1);
+    previewRenderer.setSize(180, 140, false);
+    previewRenderer.setClearColor(0x172033, 1);
+
+    const previewScene = new THREE.Scene();
+    const previewCamera = new THREE.PerspectiveCamera(30, 180 / 140, 0.01, 1000);
+    previewScene.add(new THREE.AmbientLight(0xffffff, 1.5));
+    const keyLight = new THREE.DirectionalLight(0xffffff, 2.2);
+    keyLight.position.set(4, 7, 6);
+    previewScene.add(keyLight);
+    const fillLight = new THREE.DirectionalLight(0x7dd3fc, 0.8);
+    fillLight.position.set(-4, 2, 1);
+    previewScene.add(fillLight);
+
+    const previewModel = model.clone(true);
+    const bounds = new THREE.Box3().setFromObject(previewModel);
+    const center = bounds.getCenter(new THREE.Vector3());
+    const size = bounds.getSize(new THREE.Vector3());
+    const largestDimension = Math.max(size.x, size.y, size.z, 0.1);
+    previewModel.position.sub(center);
+    previewScene.add(previewModel);
+
+    const distance = largestDimension * 2.8;
+    previewCamera.position.set(distance * 0.9, distance * 0.7, distance);
+    previewCamera.lookAt(0, 0, 0);
+    previewRenderer.render(previewScene, previewCamera);
+    const thumbnail = canvas.toDataURL('image/png');
+    previewRenderer.dispose();
+    return thumbnail;
+  } catch (error) {
+    console.warn('Không thể tạo ảnh xem trước model:', error);
+    if (previewRenderer) previewRenderer.dispose();
+    return '';
+  }
+}
+
+function spawnCustomPart(customPartId) {
+  const definition = customPartsDatabase.find(part => part.id === customPartId);
+  if (!definition) return;
+
+  const model = definition.model.clone(true);
+  findSafeSpawnPosition(model);
+  const part = registerPart(definition.name, 'imported-model', model, [], null, definition.height);
+  part.customSourceId = definition.id;
+  applySocketMetadata(part, definition.metadata);
+  showTemporaryNotice(`Đã lấy [${definition.name}] ra sàn.`);
 }
 
 function applySocketMetadata(part, metadata) {

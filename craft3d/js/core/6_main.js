@@ -152,6 +152,8 @@ function initScene() {
   if (typeof initPhysics === 'function') initPhysics();
   if (typeof initClusterManager === 'function') initClusterManager();
   if (typeof initTransformControls === 'function') initTransformControls();
+  if (typeof setupModelImport === 'function') setupModelImport();
+  if (typeof initAssemblyHistory === 'function') initAssemblyHistory();
 
   window.addEventListener('resize', onWindowResize);
   if (typeof window.onCanvasPointerDown === 'function') {
