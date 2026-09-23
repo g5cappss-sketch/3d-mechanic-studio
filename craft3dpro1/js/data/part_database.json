@@ -1,0 +1,30 @@
+{
+	"version": 1,
+	"socketStandards": {
+		"technic_14mm": {
+			"radius": 0.2979,
+			"snapDistance": 0.5
+		}
+	},
+	"parts": {
+		"beam_5_holes": {
+			"name": "Dầm Nhựa 5 Lỗ",
+			"category": "beam",
+			"connections": [
+				{ "id": "hole_1", "type": "female", "radius": 0.2979, "pos": [-2, 0.4, 0], "axis": [0, 1, 0] },
+				{ "id": "hole_2", "type": "female", "radius": 0.2979, "pos": [-1, 0.4, 0], "axis": [0, 1, 0] },
+				{ "id": "hole_3", "type": "female", "radius": 0.2979, "pos": [0, 0.4, 0], "axis": [0, 1, 0] },
+				{ "id": "hole_4", "type": "female", "radius": 0.2979, "pos": [1, 0.4, 0], "axis": [0, 1, 0] },
+				{ "id": "hole_5", "type": "female", "radius": 0.2979, "pos": [2, 0.4, 0], "axis": [0, 1, 0] }
+			]
+		},
+		"standard_pin": {
+			"name": "Chốt Đen Tiêu Chuẩn",
+			"category": "pin",
+			"connections": [
+				{ "id": "pin_top", "type": "male", "radius": 0.2979, "pos": [0, 0.8, 0], "axis": [0, 1, 0] },
+				{ "id": "pin_bottom", "type": "male", "radius": 0.2979, "pos": [0, -0.8, 0], "axis": [0, -1, 0] }
+			]
+		}
+	}
+}
